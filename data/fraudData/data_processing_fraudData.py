@@ -760,6 +760,7 @@ subprocess.run([
     "-e", "PGPASSWORD=password",
     "postgresql",
     "pg_restore",
+    "-c",
     "-U", "user",
     "-d", "database",
     "/tmp/fraudData_snapshot.dump"
