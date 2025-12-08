@@ -1,4 +1,9 @@
 __pycache__/
 */__pycache__/
 
-data/*.csv
+data/fraudData/fraudTrain.csv
+data/fraudData/fraudTest.csv
+
+data/Understanding Credit Card Frauds/qdrant
+
+~$*

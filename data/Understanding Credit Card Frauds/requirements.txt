@@ -1,0 +1,10 @@
+python-docx
+numpy
+tqdm
+
+nltk
+transformers
+torch
+sentence-transformers
+
+qdrant-client
