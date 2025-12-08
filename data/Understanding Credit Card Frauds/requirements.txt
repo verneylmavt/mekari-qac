@@ -3,8 +3,8 @@ numpy
 tqdm
 
 nltk
-transformers
 torch
+transformers
 sentence-transformers
 
 qdrant-client

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# ## Training
+# ## Indexing
 
 # ### Import
 
@@ -326,6 +326,8 @@ print(f"  Min. Words per Chunk: {np.min(chunk_word_lengths)}")
 print(f"  Max. Words per Chunk: {np.max(chunk_word_lengths)}")
 
 
+# #### Exporting: Chunk
+
 # In[154]:
 
 
@@ -395,6 +397,8 @@ assert chunk_embeddings.shape[0] == len(chunks)
 assert chunk_embeddings.shape[1] == embed_dim
 
 
+# #### Exporting: Embedding
+
 # In[143]:
 
 
@@ -449,6 +453,24 @@ def rerank_with_bge_reranker(
 # ### Vector Store: Qdrant
 
 # #### Vector Store Setup and Connection
+
+# In[ ]:
+
+
+import os
+import subprocess
+
+os.makedirs("qdrant", exist_ok=True)
+
+if subprocess.run(["docker", "start", "qdrant"]).returncode != 0:
+    subprocess.run([
+        "docker", "run", "-d",
+        "--name", "qdrant",
+        "-p", "6333:6333",
+        "-v", f"{os.getcwd()}\\qdrant:/qdrant/storage",
+        "qdrant/qdrant:latest"
+    ])
+
 
 # In[126]:
 
@@ -672,7 +694,7 @@ for i, r in enumerate(reranked_test_results, start=1):
 
 # ### Import
 
-# In[4]:
+# In[1]:
 
 
 import os
@@ -690,7 +712,7 @@ from qdrant_client.http import models as qmodels
 
 # ### Config & Variables
 
-# In[5]:
+# In[2]:
 
 
 qdrant_url = "http://localhost:6333"
@@ -702,7 +724,7 @@ embed_dim = 768
 reranker_model_name = "BAAI/bge-reranker-base"
 
 
-# In[6]:
+# In[3]:
 
 
 with open("Bhatla_chunks.json", "r", encoding="utf-8") as f:
@@ -711,7 +733,7 @@ with open("Bhatla_chunks.json", "r", encoding="utf-8") as f:
 chunk_embeddings: np.ndarray = np.load("Bhatla_embeddings.npy")
 
 
-# In[7]:
+# In[4]:
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -722,7 +744,7 @@ print(f"Device: {device}")
 
 # #### Embedding Model
 
-# In[8]:
+# In[5]:
 
 
 embed_model = SentenceTransformer(embed_model_name, device=device)
@@ -731,7 +753,7 @@ print(f"Embedding Model: '{embed_model_name}' on Device: {device}")
 
 # #### Embedding Function
 
-# In[9]:
+# In[6]:
 
 
 def embed_texts(texts: List[str], batch_size: int = 32, is_query: bool = False) -> np.ndarray:
@@ -756,7 +778,7 @@ def embed_query(query: str) -> np.ndarray:
 
 # #### Reranker Model
 
-# In[10]:
+# In[7]:
 
 
 reranker = CrossEncoder(
@@ -770,7 +792,7 @@ print(f"Reranker Model: '{reranker_model_name}' on Device: {device}")
 
 # #### Reranker Function
 
-# In[11]:
+# In[8]:
 
 
 def rerank_with_bge_reranker(
@@ -801,14 +823,32 @@ def rerank_with_bge_reranker(
 
 # #### Vector Store Setup and Connection
 
-# In[12]:
+# In[9]:
+
+
+import os
+import subprocess
+
+os.makedirs("qdrant", exist_ok=True)
+
+if subprocess.run(["docker", "start", "qdrant"]).returncode != 0:
+    subprocess.run([
+        "docker", "run", "-d",
+        "--name", "qdrant",
+        "-p", "6333:6333",
+        "-v", f"{os.getcwd()}\\qdrant:/qdrant/storage",
+        "qdrant/qdrant:latest"
+    ])
+
+
+# In[10]:
 
 
 qdrant = QdrantClient(url=qdrant_url)
 print(f"Qdrant at {qdrant_url}")
 
 
-# In[13]:
+# In[12]:
 
 
 def recreate_collection_if_needed(
@@ -834,7 +874,7 @@ recreate_collection_if_needed(qdrant, qdrant_collection, embed_dim)
 
 # #### Vector Store Upload
 
-# In[14]:
+# In[13]:
 
 
 def upload_saved_chunks_to_qdrant(
@@ -880,7 +920,7 @@ def upload_saved_chunks_to_qdrant(
 upload_saved_chunks_to_qdrant(qdrant, qdrant_collection, chunk_records, chunk_embeddings)
 
 
-# In[15]:
+# In[14]:
 
 
 info = qdrant.get_collection(qdrant_collection)
@@ -890,7 +930,7 @@ print(info)
 
 # #### Vector Store Search Function
 
-# In[16]:
+# In[15]:
 
 
 def search_qdrant(
@@ -929,7 +969,7 @@ def search_qdrant(
 
 # ### Testing
 
-# In[17]:
+# In[16]:
 
 
 def retrieve_chunks(
@@ -946,7 +986,7 @@ def retrieve_chunks(
     return reranked_results
 
 
-# In[20]:
+# In[17]:
 
 
 def pretty_print_results(
@@ -976,7 +1016,7 @@ def pretty_print_results(
         print(f"    snippet:       '{text_snippet}...'")
 
 
-# In[21]:
+# In[18]:
 
 
 queries = [
