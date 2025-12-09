@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-database}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - "./data/fraudData/postgresql:/var/lib/postgresql/data"
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - "./data/Understanding Credit Card Frauds/qdrant:/qdrant/storage"

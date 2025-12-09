@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic>=2
+SQLAlchemy>=2
+psycopg2-binary
+qdrant-client
+sentence-transformers
+torch
+numpy
+langgraph
+typing-extensions
+openai
+tqdm
