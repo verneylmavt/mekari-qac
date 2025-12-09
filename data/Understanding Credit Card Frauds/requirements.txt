@@ -1,7 +1,7 @@
 python-docx
-numpy
 tqdm
 
+numpy
 nltk
 torch
 transformers
