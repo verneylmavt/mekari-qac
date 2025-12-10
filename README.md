@@ -114,6 +114,8 @@ assistx-vp
    - Git Large File Storage
    - Python
    - Conda or venv
+   - Docker
+   - NVIDIA Driver + CUDA Toolkit (optional)
 
 1. Clone the repository:
 
@@ -131,13 +133,26 @@ assistx-vp
    pip install -r requirements.txt
    ```
 
-3. Fill the required OpenAI API key in `.env`
+3. Fill the required `OPENAI_API_KEY` in `.env`
 
-4. Run the server:
+4. Initialize and run the required components:
 
-   ```bash
-   uvicorn app.main:app --reload
-   ```
+   - Initialize the PostgreSQL:
+     ```bash
+     python scripts/init_postgresql.py
+     ```
+   - Initialize the Qdrant:
+     ```bash
+     python scripts/init_qdrant.py
+     ```
+   - Run the FastAPI server:
+     ```bash
+     uvicorn backend.app.main:app --reload --port 8000
+     ```
+   - Run the Streamlit UI:
+     ```bash
+     streamlit run frontend/app.py
+     ```
 
 5. Open the API documentation to make an API call and interact with the app:
    ```bash
