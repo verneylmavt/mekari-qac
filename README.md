@@ -11,52 +11,58 @@ At its core, this project is engineered as a modular pipeline that separates con
 ```
 mekari-qac
 │
-├── data/
+├── data/                                     # Dataset and data processing
 │   ├── fraudData/
-│   │   ├── fraudTrain.csv
-│   │   ├── fraudTest.csv
-│   │   ├── fraudData_snapshot.dump
-│   │   └── data_processing_fraudData.ipynb
+│   │   ├── fraudTrain.csv                    # Training split of credit card transaction dataset
+│   │   ├── fraudTest.csv                     # Test split of credit card transaction dataset
+│   │   ├── data_processing_fraudData.ipynb   # Data processing notebook for credit card transaction dataset
+│   │   ├── fraudData_snapshot.dump           # PostgreSQL snapshot for fast DB restoration
+│   │   └── requirements.txt
 │   │
 │   └── Understanding Credit Card Frauds/
-│       ├── Bhatla.pdf
-│       ├── Bhatla.docx
-│       ├── Bhatla_Description.docx
-│       ├── Bhatla_chunks.json
-│       ├── Bhatla_embeddings.npy
-│       ├── data_processing_Understanding Credit Card Frauds.ipynb
-│       └── qdrant/              # Local Qdrant storage (if using volume mapping)
+│       ├── Bhatla.pdf                                              # Credit card fraud document
+│       ├── data_processing_Understanding Credit Card Frauds.ipynb  # Data processing notebook for credit card fraud document
+│       ├── Bhatla_chunks.json                                      # Cleaned and segmented text chunks
+│       ├── Bhatla_embeddings.npy                                   # Precomputed dense embeddings
+│       └── requirements.txt
 │
-├── backend/
-│   └── app/
-│       ├── main.py              # FastAPI entrypoint (/health, /chat)
-│       ├── config.py            # Pydantic settings (env-based)
-│       ├── db.py                # SQLAlchemy engine
-│       ├── schemas.py           # Pydantic request/response models
-│       │
-│       ├── agent/
-│       │   ├── state.py         # Agent state TypedDict
-│       │   ├── router.py        # LLM router (data / document / none)
-│       │   ├── graph.py         # LangGraph wiring of all nodes
-│       │   ├── data_nodes.py    # LLM-to-SQL, SQL execution, data answer
-│       │   ├── doc_nodes.py     # Qdrant retrieval + RAG answer
-│       │   └── scoring_node.py  # Answer quality scoring
-│       │
-│       ├── llm/
-│       │   └── client.py        # Thin wrapper around OpenAI (GPT-5-Nano / GPT-5-Mini)
-│       │
-│       ├── rag/
-│       │   └── qdrant_client.py # BGE embedder + Qdrant search & rerank
-│       │
-│       └── repositories/
-│           └── metrics_repo.py  # Thin SQL execution layer for analytics
+├── backend/                                  # FastAPI backend
+│   ├── app/
+│   │   ├── main.py                           # REST API: /health, /chat, response assembly
+│   │   ├── config.py                         # Environment variables + global configuration
+│   │   ├── db.py                             # PostgreSQL engine creation + connection handling
+│   │   ├── schemas.py                        # Pydantic request/response models
+│   │   │
+│   │   ├── agent/
+│   │   │   ├── state.py                      # Central AgentState + shared memory fields
+│   │   │   ├── graph.py                      # Routing graph: data, document, fallback, scoring
+│   │   │   ├── router.py                     # LLM question router: data vs document vs none
+│   │   │   ├── data_nodes.py                 # SQL generator, SQL executor, and data explanation nodes
+│   │   │   ├── doc_nodes.py                  # Qdrant retrieval + RAG answer generator
+│   │   │   └── scoring_node.py               # Quality-scoring node for evaluating LLM answers
+│   │   │
+│   │   ├── llm/
+│   │   │   └── client.py                     # GPT-5-Nano/Mini wrappers for chat/completions
+│   │   │
+│   │   ├── rag/
+│   │   │   └── qdrant_client.py              # Embedding, retrieval, reranking + Qdrant connection
+│   │   │
+│   │   └── repositories/
+│   │       └── metrics_repo.py               # SQL execution helper for querying analytics tables/views
+│   │
+│   └── requirements.txt
 │
-└── frontend/
-    └── streamlit_app.py        # Streamlit chat interface
-
+├── frontend/                                 # Streamlit frontend
+│   ├── app.py                                # Streamlit interface: health check, chat UI
+│   └── requirements.txt
+│
+├── scripts/                                  # One-time initialization utilities
+│   ├── init_postgresql.py                    # Script to spin up PostgreSQL
+│   └── init_qdrant.py                        # Script to launch Qdrant
 │
 ├── assets/
-│   └── Mekari - AI Engineer.*   # Challenge description (PDF/DOCX)
+│   ├── q&a_chatbot_fastapi_demo.mp4          # Backend-only demo showcasing API usage
+│   └── q&a_chatbot_streamlit_demo.mp4        # Full frontend demo showing user experience
 │
 ├── .env
 └── requirements.txt
@@ -129,10 +135,10 @@ mekari-qac
 
 ## 🖥️ Demo Video
 
-- FastAPI Server
+- **FastAPI Server**
   ![FastAPI Server](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_fastapi_demo.gif)
 
-- Streamlit UI
+- **Streamlit UI**
   ![Streamlit UI](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_streamlit_demo.gif)
 
 ## ⚙️ Local Setup
