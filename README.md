@@ -2,7 +2,7 @@
 
 This projects implements a Q&A Chatbot, which focuses on building a robust internal system capable of answering fraud-related questions using two fundamentally different sources of information: [a tabular credit-card transaction dataset](https://www.kaggle.com/datasets/kartik2112/fraud-detection/data?select=fraud%20dataset) and [a document explaining real-world fraud mechanisms](https://popcenter.asu.edu/sites/g/files/litvpz3631/files/problems/credit_card_fraud/PDFs/Bhatla.pdf). The primary challenge is to design an intelligent agent that can understand a user’s question, determine the appropriate knowledge source, extract and synthesize correct information, and deliver clear, accurate insights.
 
-At its core, this project is engineered as a modular pipeline that separates concerns cleanly: data processing, PostgreSQL relational database for transaction dataset, Qdrant vector database for document embedding, FastAPI backend for LLM orchestration, and Streamlit frontend for interaction.
+At its core, this project is engineered as a modular pipeline that separates concerns cleanly: data processing, PostgreSQL relational database for processed credit card transaction dataset, Qdrant vector database for processed credit card fraud document, FastAPI backend server, and Streamlit frontend UI.
 
 [Click here to learn more about the project: mekari-qac/assets/Mekari - AI Engineer.pdf](https://github.com/verneylmavt/mekari-qac/blob/ec7788fa0749925197eb3379c2ed9b6e56e4d5f2/assets/Mekari%20-%20AI%20Engineer.pdf).
 
