@@ -154,7 +154,11 @@ assistx-vp
      streamlit run frontend/app.py
      ```
 
-5. Open the API documentation to make an API call and interact with the app:
+5. Open the API documentation to make an API call:
    ```bash
    start "http://127.0.0.1:8000/docs"
+   ```
+   Or alternatively, open the UI and interact with the app:
+   ```bash
+   start "http://127.0.0.1:8501"
    ```
