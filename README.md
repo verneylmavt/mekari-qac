@@ -28,7 +28,7 @@ mekari-qac
 │
 ├── backend/                                  # FastAPI backend
 │   ├── app/
-│   │   ├── main.py                           # REST API: /health, /chat, response assembly
+│   │   ├── main.py                           # REST API: /health, /chat
 │   │   ├── config.py                         # Environment variables + global configuration
 │   │   ├── db.py                             # PostgreSQL engine creation + connection handling
 │   │   ├── schemas.py                        # Pydantic request/response models
@@ -56,13 +56,13 @@ mekari-qac
 │   ├── app.py                                # Streamlit interface: health check, chat UI
 │   └── requirements.txt
 │
-├── scripts/                                  # One-time initialization utilities
-│   ├── init_postgresql.py                    # Script to spin up PostgreSQL
-│   └── init_qdrant.py                        # Script to launch Qdrant
+├── scripts/                                  # Initialization scripts
+│   ├── init_postgresql.py                    # Script to initialize PostgreSQL
+│   └── init_qdrant.py                        # Script to initialize Qdrant
 │
 ├── assets/
-│   ├── q&a_chatbot_fastapi_demo.mp4          # Backend-only demo showcasing API usage
-│   └── q&a_chatbot_streamlit_demo.mp4        # Full frontend demo showing user experience
+│   ├── q&a_chatbot_fastapi_demo.mp4          # Demo video for FastAPI Server
+│   └── q&a_chatbot_streamlit_demo.mp4        # Demo video for Streamlit UI
 │
 ├── .env
 └── requirements.txt
