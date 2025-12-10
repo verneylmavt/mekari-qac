@@ -118,15 +118,15 @@ assistx-vp
 1. Clone the repository:
 
    ```bash
-    git clone https://github.com/verneylmavt/assistx-vp.git
-    cd assistx-vp
+    git clone https://github.com/verneylmavt/mekari-qac.git
+    cd mekari-qac
    ```
 
 2. Create environment and install dependencies:
 
    ```bash
-   conda create -n assistx-vp python=3.11 -y
-   conda activate assistx-vp
+   conda create -n mekari-qac python=3.11 -y
+   conda activate mekari-qac
 
    pip install -r requirements.txt
    ```
