@@ -4,7 +4,7 @@ This projects implements a Q&A Chatbot, which focuses on building a robust inter
 
 At its core, this project is engineered as a modular pipeline that separates concerns cleanly: data processing, PostgreSQL relational database for transaction dataset, Qdrant vector database for document embedding, FastAPI backend for LLM orchestration, and Streamlit frontend for interaction.
 
-[Click here to learn more about the project: assistx-vp/assets/Task - AI Engineer (LLM) Revised.pdf](<https://github.com/verneylmavt/assistx-vp/blob/fa8ebaab0b877b795af87f442eb632d78826cb3b/assets/Task%20-%20AI%20Engineer%20(LLM)%20Revised.pdf>).
+[Click here to learn more about the project: mekari-qac/assets/Mekari - AI Engineer.pdf](https://github.com/verneylmavt/mekari-qac/blob/ec7788fa0749925197eb3379c2ed9b6e56e4d5f2/assets/Mekari%20-%20AI%20Engineer.pdf).
 
 ## 📁 Project Structure
 
