@@ -70,7 +70,10 @@ mekari-qac
 
 ## 🧩 Components
 
-- **PostgreSQL Relational Database for Credit Card Transaction Dataset**
+- **PostgreSQL Relational Database for Credit Card Transaction Dataset**  
+   The credit card transaction data from fraudTrain.csv and fraudTest.csv is first combined and processed inside data/fraudData/data_processing_fraudData.ipynb, where it undergoes extensive normalization, parsing, and feature engineering. This includes converting timestamps and identifiers into proper formats, creating calendar fields (year, month, year-month, day-of-week, hour), computing customer age at the time of each transaction, and calculating the customer-to-merchant distance using the Haversine formula. The notebook then models the dataset as a full analytical star schema—dim_customer, dim_merchant, dim_category, dim_date, and fact_transactions—and loads it into a PostgreSQL database. Indexes and materialized views are created to support fast analytical queries for fraud rates, merchant/category breakdowns, and time-series patterns.
+
+   After preprocessing, the notebook exports the fully populated database into fraudData_snapshot.dump, which captures all tables, indexes, and materialized views. At runtime, scripts/init_postgresql.py restores this snapshot into a Dockerized PostgreSQL instance, ensuring that the backend starts with a ready-to-query analytical warehouse. This allows the FastAPI service to immediately access all aggregated fraud metrics through a clean relational model without reprocessing the raw CSVs.
 - **Qdrant Vector Database for Credit Card Fraud Document**
 - **FastAPI Backend Server**
 - **Streamlit Frontend UI**
