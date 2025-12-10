@@ -93,6 +93,11 @@ mekari-qac
       LLM calls and data access are abstracted behind stable interfaces. `backend/app/llm/client.py` provides thin wrappers around GPT-5 Nano and Mini, ensuring that every part of the pipeline (router, SQL generator, RAG answerer, scorer) uses consistent model invocation logic. Together, these components form a cohesive backend that retrieves the right information source, synthesizes grounded answers, scores them, and then exposes everything through a simple and predictable `/chat` API.
    - **Future Improvements**  
 - **Streamlit Frontend UI**
+  - **Implementation**  
+      The Streamlit interface in `frontend/app.py` provides a simple chat surface that communicates with the FastAPI backend over HTTP. It initializes the backend URL from the `FRAUD_API_BASE_URL` environment variable, exposes this setting in the sidebar, and allows users to run a `/health` check that reports the status of PostgreSQL, Qdrant, and the active LLM model. Conversation state is stored in `st.session_state.messages`, which holds a list of user and assistant turns. Each user input is immediately rendered, while the sidebar and helper utilities (`init_session_state`, `build_history_for_backend`, `call_health`) maintain a consistent UI state.
+
+      When the user submits a question, the UI sends a POST request to `/chat` using `call_chat()`, passing the cleaned conversation history in the format required by the backend. The backend’s response, containing the generated answer, answer type, quality score, optional SQL, and supporting sources, is appended as an assistant message and displayed using `render_assistant_message()`. This renderer supports expandable previews for SQL result samples and retrieved document chunks, ensuring transparency in how each answer was generated. Errors from the backend are caught and displayed as assistant messages so that the chat view remains stable even under failure conditions.
+   - **Future Improvements**  
 
 ## 🔌 API
 
