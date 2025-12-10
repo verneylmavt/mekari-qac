@@ -70,6 +70,11 @@ mekari-qac
 
 ## 🧩 Components
 
+- **PostgreSQL Relational Database for Credit Card Transaction Dataset**
+- **Qdrant Vector Database for Credit Card Fraud Document**
+- **FastAPI Backend Server**
+- **Streamlit Frontend UI**
+
 ## 🔌 API
 
 1. **Health Check**  

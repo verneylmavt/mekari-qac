@@ -5,7 +5,7 @@
 
 # ### Import
 
-# In[65]:
+# In[9]:
 
 
 import numpy as np
@@ -129,7 +129,7 @@ df.isna().sum()
 
 # ### Database: PostgreSQL
 
-# In[76]:
+# In[ ]:
 
 
 import os
@@ -727,7 +727,7 @@ from sqlalchemy import create_engine, text
 
 # ### Database: PostgreSQL
 
-# In[14]:
+# In[3]:
 
 
 import os
@@ -742,10 +742,11 @@ if subprocess.run(["docker", "start", "postgresql"]).returncode != 0:
         "-e", "POSTGRES_PASSWORD=password",
         "-e", "POSTGRES_DB=database",
         "-p", "5432:5432",
+        "-v", f"{os.getcwd()}/postgresql:/var/lib/postgresql/data",
         "-d", "postgres:16"
     ], check=True)
 
-time.sleep(10)
+time.sleep(15)
 
 subprocess.run([
     "docker", "cp",
@@ -753,7 +754,7 @@ subprocess.run([
     "postgresql:/tmp/fraudData_snapshot.dump"
 ], check=True)
 
-time.sleep(10)
+time.sleep(15)
 
 subprocess.run([
     "docker", "exec",
@@ -767,7 +768,7 @@ subprocess.run([
 ], check=True)
 
 
-# In[15]:
+# In[4]:
 
 
 DB_USER = "user"
@@ -779,13 +780,13 @@ DB_NAME = "database"
 DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 
-# In[16]:
+# In[5]:
 
 
 engine = create_engine(DATABASE_URL, echo=False, future=True)
 
 
-# In[17]:
+# In[6]:
 
 
 with engine.connect() as conn:
@@ -795,7 +796,7 @@ with engine.connect() as conn:
 
 # ### Testing
 
-# In[18]:
+# In[8]:
 
 
 with engine.connect() as conn:
