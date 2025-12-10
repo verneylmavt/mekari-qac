@@ -61,8 +61,8 @@ mekari-qac
 │   └── init_qdrant.py                        # Script to initialize Qdrant
 │
 ├── assets/
-│   ├── q&a_chatbot_fastapi_demo.mp4          # Demo video for FastAPI Server
-│   └── q&a_chatbot_streamlit_demo.mp4        # Demo video for Streamlit UI
+│   ├── q&a_chatbot_fastapi_demo.mp4          # Demo video for FastAPI Backend Server
+│   └── q&a_chatbot_streamlit_demo.mp4        # Demo video for Streamlit Frontend UI
 │
 ├── .env
 └── requirements.txt
@@ -119,7 +119,7 @@ mekari-qac
 ## 🔌 API
 
 1. **Health Check**  
-   `GET /health`: to verify that the FastAPI server, PostgreSQL, Qdrant is running
+   `GET /health`: to verify that the FastAPI, PostgreSQL, Qdrant is running
    - Request: `None`
    - Response: `'status', 'db_ok', 'qdrant_ok', 'model'`
    ```bash
@@ -143,11 +143,11 @@ mekari-qac
 
 ## 🖥️ Demo Video
 
-- **FastAPI Server**
-  ![FastAPI Server](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_fastapi_demo.gif)
+- **FastAPI Backend Server**
+  ![FastAPI Backend Server](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_fastapi_demo.gif)
 
-- **Streamlit UI**
-  ![Streamlit UI](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_streamlit_demo.gif)
+- **Streamlit Frontend UI**
+  ![Streamlit Frontend UI](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_streamlit_demo.gif)
 
 ## ⚙️ Local Setup
 
