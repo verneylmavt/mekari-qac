@@ -9,41 +9,60 @@ At its core, this project is engineered as a modular pipeline that separates con
 ## 📁 Project Structure
 
 ```
-assistx-vp
+mekari-qac
 │
-├─ app/                              # Solution app
-│  ├─ config.py                      # Configuration files
-│  ├─ main.py                        # FastAPI app
-│  │
-│  ├─ agent/
-│  │  └─ vacation_agent.py           # PydanticAI agent with tools
-│  │
-│  ├─ models/
-│  │  ├─ api.py                      # API models
-│  │  └─ domain.py                   # Domain models
-│  │
-│  ├─ services/
-│  │  ├─ bookings.py                 # Booking service
-│  │  ├─ calendar.py                 # Calendar service
-│  │  ├─ preferences.py              # Preferences service
-│  │  ├─ sessions.py                 # Session helper
-│  │  └─ travel_search.py            # Travel search service (for mock flights/hotels)
-│  │
-│  └─ storage/
-│     └─ in_memory.py                # In-memory storage
+├── data/
+│   ├── fraudData/
+│   │   ├── fraudTrain.csv
+│   │   ├── fraudTest.csv
+│   │   ├── fraudData_snapshot.dump
+│   │   └── data_processing_fraudData.ipynb
+│   │
+│   └── Understanding Credit Card Frauds/
+│       ├── Bhatla.pdf
+│       ├── Bhatla.docx
+│       ├── Bhatla_Description.docx
+│       ├── Bhatla_chunks.json
+│       ├── Bhatla_embeddings.npy
+│       ├── data_processing_Understanding Credit Card Frauds.ipynb
+│       └── qdrant/              # Local Qdrant storage (if using volume mapping)
 │
-├─ assets/
-│  ├─ vacation_planner_solution.pdf  # Solution report
-│  └─ vacation_planner_demo.gif      # Solution demo video
+├── backend/
+│   └── app/
+│       ├── main.py              # FastAPI entrypoint (/health, /chat)
+│       ├── config.py            # Pydantic settings (env-based)
+│       ├── db.py                # SQLAlchemy engine
+│       ├── schemas.py           # Pydantic request/response models
+│       │
+│       ├── agent/
+│       │   ├── state.py         # Agent state TypedDict
+│       │   ├── router.py        # LLM router (data / document / none)
+│       │   ├── graph.py         # LangGraph wiring of all nodes
+│       │   ├── data_nodes.py    # LLM-to-SQL, SQL execution, data answer
+│       │   ├── doc_nodes.py     # Qdrant retrieval + RAG answer
+│       │   └── scoring_node.py  # Answer quality scoring
+│       │
+│       ├── llm/
+│       │   └── client.py        # Thin wrapper around OpenAI (GPT-5-Nano / GPT-5-Mini)
+│       │
+│       ├── rag/
+│       │   └── qdrant_client.py # BGE embedder + Qdrant search & rerank
+│       │
+│       └── repositories/
+│           └── metrics_repo.py  # Thin SQL execution layer for analytics
 │
-├─ .env
-└─ requirements.txt
+└── frontend/
+    └── streamlit_app.py        # Streamlit chat interface
+
+│
+├── assets/
+│   └── Mekari - AI Engineer.*   # Challenge description (PDF/DOCX)
+│
+├── .env
+└── requirements.txt
 ```
 
-## 💡 Solution Report and Solution Demo Video
-
-- The solution report includes overview, solution, and vulnerability and risk. [Click here to learn more about the solution report: assistx-vp/assets/vacation_planner_solution.pdf](https://github.com/verneylmavt/assistx-vp/blob/392517c31b3a6190a7c442b79437368a83ac4b44/assets/vacation_planner_solution.pdf).
-- The solution demo video shows the working app, accessible via api call. [Click here to learn more about the solution demo video: assistx-vp/assets/vacation_planner_demo.gif](https://github.com/verneylmavt/assistx-vp/blob/392517c31b3a6190a7c442b79437368a83ac4b44/assets/vacation_planner_demo.gif).
+## 🧩 Components
 
 ## 🔌 API
 
@@ -108,6 +127,14 @@ assistx-vp
      }'
      ```
 
+## 🧩 Demo Video
+
+- FastAPI Server
+  ![FastAPI Server](https://raw.githubusercontent.com/verneylmavt/synapsis-pd-pt-pc/refs/heads/main/assets/Dashboard.gif)
+
+- Streamlit UI
+  ![Streamlit UI](https://raw.githubusercontent.com/verneylmavt/synapsis-pd-pt-pc/refs/heads/main/assets/Dashboard.gif)
+
 ## ⚙️ Local Setup
 
 0. Make sure to have the prerequisites:
@@ -147,11 +174,11 @@ assistx-vp
      ```bash
      python scripts/init_qdrant.py
      ```
-   - Run the FastAPI server:
+   - Run the FastAPI backend server:
      ```bash
      uvicorn backend.app.main:app --reload --port 8000
      ```
-   - Run the Streamlit UI:
+   - Run the Streamlit frontend UI:
      ```bash
      streamlit run frontend/app.py
      ```
