@@ -127,13 +127,13 @@ mekari-qac
      }'
      ```
 
-## 🧩 Demo Video
+## 🖥️ Demo Video
 
 - FastAPI Server
-  ![FastAPI Server](https://raw.githubusercontent.com/verneylmavt/synapsis-pd-pt-pc/refs/heads/main/assets/Dashboard.gif)
+  ![FastAPI Server](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_fastapi_demo.gif)
 
 - Streamlit UI
-  ![Streamlit UI](https://raw.githubusercontent.com/verneylmavt/synapsis-pd-pt-pc/refs/heads/main/assets/Dashboard.gif)
+  ![Streamlit UI](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_streamlit_demo.gif)
 
 ## ⚙️ Local Setup
 
