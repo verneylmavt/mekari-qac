@@ -16,7 +16,7 @@ mekari-qac
 │   │   ├── fraudTrain.csv                    # Training split of credit card transaction dataset
 │   │   ├── fraudTest.csv                     # Test split of credit card transaction dataset
 │   │   ├── data_processing_fraudData.ipynb   # Data processing notebook for credit card transaction dataset
-│   │   ├── fraudData_snapshot.dump           # PostgreSQL snapshot for fast DB restoration
+│   │   ├── fraudData_snapshot.dump           # DB snapshot
 │   │   └── requirements.txt
 │   │
 │   └── Understanding Credit Card Frauds/
