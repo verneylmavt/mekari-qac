@@ -72,14 +72,14 @@ mekari-qac
 
 ## 🔌 API
 
-1. **Health Check**
+1. **Health Check**  
    `GET /health`: to verify that the FastAPI server, PostgreSQL, Qdrant is running
    - Request: `None`
    - Response: `'status', 'db_ok', 'qdrant_ok', 'model'`
    ```bash
    curl "http://localhost:8000/health"
    ```
-2. **Chat w/ Fraud Q&A Chatbot**
+2. **Chat w/ Fraud Q&A Chatbot**  
    `POST /chat`: to ask the chatbot about credit card transaction or credit card fraud
    - Request: `ChatRequest`
    - Response: `ChatResponse`
