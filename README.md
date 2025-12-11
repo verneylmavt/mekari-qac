@@ -4,7 +4,7 @@ This projects implements a Q&A Chatbot, which focuses on building a robust inter
 
 At its core, this project is engineered as a modular pipeline that separates concerns cleanly: data processing, PostgreSQL relational database for processed credit card transaction dataset, Qdrant vector database for processed credit card fraud document, FastAPI backend server, and Streamlit frontend UI.
 
-[Click here to learn more about the project: mekari-qac/assets/Mekari - AI Engineer.pdf](https://github.com/verneylmavt/mekari-qac/blob/ec7788fa0749925197eb3379c2ed9b6e56e4d5f2/assets/Mekari%20-%20AI%20Engineer.pdf).
+<!-- [Click here to learn more about the project: mekari-qac/assets/Mekari - AI Engineer.pdf](https://github.com/verneylmavt/mekari-qac/blob/ec7788fa0749925197eb3379c2ed9b6e56e4d5f2/assets/Mekari%20-%20AI%20Engineer.pdf). -->
 
 ## 📁 Project Structure
 
