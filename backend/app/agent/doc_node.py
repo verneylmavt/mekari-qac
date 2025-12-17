@@ -3,8 +3,8 @@
 from typing import List, Dict, Any
 
 from .state import AgentState
-from ..rag.qdrant_client import retrieve_relevant_chunks
-from ..llm.client import call_gpt5_mini
+from ..vdb.qdrant_client import retrieve_relevant_chunks
+from ..llm.openai_client import call_gpt5_mini
 
 
 def retrieval_node(state: AgentState) -> AgentState:

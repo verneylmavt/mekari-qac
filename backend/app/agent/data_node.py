@@ -6,8 +6,8 @@ from statistics import mean
 import numbers
 
 from .state import AgentState
-from ..llm.client import call_gpt5_mini
-from ..repositories.metrics_repo import run_sql_query
+from ..llm.openai_client import call_gpt5_mini
+from ..rdb.postgresql_client import run_sql_query
 
 
 SCHEMA_DESCRIPTION = """
@@ -252,7 +252,7 @@ def run_sql_node(state: AgentState) -> AgentState:
         )
 
         # Show up to 5 example rows
-        max_preview_rows = 5
+        max_preview_rows = 100000
         for idx, row in enumerate(rows[:max_preview_rows]):
             preview_lines.append(f"Row {idx+1}: {row}")
 

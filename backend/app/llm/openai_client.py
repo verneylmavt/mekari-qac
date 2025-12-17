@@ -25,7 +25,7 @@ def call_gpt5_mini(
     client.chat.completions.create(...)
     """
     completion = _client.chat.completions.create(
-        model="gpt-5-mini",
+        model="gpt-5",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

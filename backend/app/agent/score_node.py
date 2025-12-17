@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 
 from .state import AgentState
-from ..llm.client import call_gpt5_nano
+from ..llm.openai_client import call_gpt5_nano
 
 SCORE_SYSTEM = (
     "You are grading an answer.\n"

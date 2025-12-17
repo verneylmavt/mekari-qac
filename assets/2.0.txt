@@ -1,0 +1,3130 @@
+Great. Now that you understand the context of the entire 'Challenge Test', I would like you to thoroughly read and understand my entire solution in 'Structure' and 'Code'.
+
+
+
+
+'Structure':
+```
+mekari-qac
+│
+├── data/                                     # Dataset and data processing
+│   ├── fraudData/
+│   │   ├── fraudTrain.csv                    # Training split of credit card transaction dataset
+│   │   ├── fraudTest.csv                     # Test split of credit card transaction dataset
+│   │   ├── data_processing_fraudData.ipynb   # Data processing notebook for credit card transaction dataset
+│   │   ├── fraudData_snapshot.dump           # DB snapshot
+│   │   └── requirements.txt
+│   │
+│   └── Understanding Credit Card Frauds/
+│       ├── Bhatla_Description.docx                                 # Credit card fraud document
+│       ├── data_processing_Understanding Credit Card Frauds.ipynb  # Data processing notebook for credit card fraud document
+│       ├── Bhatla_chunks.json                                      # Cleaned and segmented text chunks
+│       ├── Bhatla_embeddings.npy                                   # Precomputed dense embeddings
+│       └── requirements.txt
+│
+├── backend/                                  # FastAPI backend
+│   ├── app/
+│   │   ├── main.py                           # REST API: /health, /chat
+│   │   ├── config.py                         # Environment variables + global configuration
+│   │   ├── db.py                             # PostgreSQL engine creation + connection handling
+│   │   ├── schemas.py                        # Pydantic request/response models
+│   │   │
+│   │   ├── agent/
+│   │   │   ├── state.py                      # Central AgentState + shared memory fields
+│   │   │   ├── graph.py                      # Routing graph: data, document, fallback, scoring
+│   │   │   ├── router.py                     # LLM question router: data vs document vs none
+│   │   │   ├── data_nodes.py                 # SQL generator, SQL executor, and data explanation nodes
+│   │   │   ├── doc_nodes.py                  # Qdrant retrieval + RAG answer generator
+│   │   │   └── scoring_node.py               # Quality-scoring node for evaluating LLM answers
+│   │   │
+│   │   ├── llm/
+│   │   │   └── client.py                     # GPT-5-Nano/Mini wrappers for chat/completions
+│   │   │
+│   │   ├── rag/
+│   │   │   └── qdrant_client.py              # Embedding, retrieval, reranking + Qdrant connection
+│   │   │
+│   │   └── repositories/
+│   │       └── metrics_repo.py               # SQL execution helper for querying analytics tables/views
+│   │
+│   └── requirements.txt
+│
+├── frontend/                                 # Streamlit frontend
+│   ├── app.py                                # Streamlit interface: health check, chat UI
+│   └── requirements.txt
+│
+├── scripts/                                  # Initialization scripts
+│   ├── init_postgresql.py                    # Script to initialize PostgreSQL
+│   └── init_qdrant.py                        # Script to initialize Qdrant
+│
+├── assets/
+│   ├── q&a_chatbot_fastapi_demo.mp4          # Demo video for FastAPI Backend Server
+│   └── q&a_chatbot_streamlit_demo.mp4        # Demo video for Streamlit Frontend UI
+│
+├── .env
+└── requirements.txt
+```
+
+
+
+
+'Code':
+
+
+'data/fraudData/data_processing_fraudData.ipynb'
+```
+#!/usr/bin/env python
+# coding: utf-8
+
+# ## Indexing
+
+# ### Import
+
+# In[9]:
+
+
+import numpy as np
+import pandas as pd
+pd.set_option("display.max_columns", None)
+
+import matplotlib.pyplot as plt
+
+from sqlalchemy import create_engine, text
+
+
+# ### Data Pre-Processing
+
+# In[66]:
+
+
+train_path = "fraudTrain.csv"
+test_path  = "fraudTest.csv"
+
+train = pd.read_csv(train_path)
+test  = pd.read_csv(test_path)
+
+
+# In[67]:
+
+
+train["split"] = "train"
+test["split"]  = "test"
+
+df = pd.concat([train, test], ignore_index=True)
+
+
+# In[68]:
+
+
+print(df)
+
+
+# #### Data Cleaning
+
+# In[69]:
+
+
+if "Unnamed: 0" in df.columns:
+    df = df.drop(columns=["Unnamed: 0"])
+
+
+# #### Data Normalization & Data Parsing
+
+# In[70]:
+
+
+# Parse timestamps and dates
+df["trans_date_trans_time"] = pd.to_datetime(df["trans_date_trans_time"])
+df["dob"] = pd.to_datetime(df["dob"])
+
+# Treat cc_num and zip as identifiers: convert to string
+df["cc_num"] = df["cc_num"].astype(str)
+df["zip"] = df["zip"].astype(str)
+
+
+# #### Feature Creation: Time-Based Features
+
+# In[71]:
+
+
+# Transaction date and related features
+df["trans_date"] = df["trans_date_trans_time"].dt.date
+df["year"]       = df["trans_date_trans_time"].dt.year
+df["month"]      = df["trans_date_trans_time"].dt.month
+df["year_month"] = df["trans_date_trans_time"].dt.to_period("M").astype(str)
+df["day_of_week"] = df["trans_date_trans_time"].dt.day_name()
+df["hour"]        = df["trans_date_trans_time"].dt.hour
+df["is_weekend"]  = df["day_of_week"].isin(["Saturday", "Sunday"])
+
+
+# #### Feature Creation: Age
+
+# In[72]:
+
+
+age_days = (df["trans_date_trans_time"] - df["dob"]).dt.days
+df["age_at_txn_years"] = age_days / 365.25
+
+
+# #### Feature Creation: Haversine Distance
+
+# In[73]:
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0  # km
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2)
+    lon2 = np.radians(lon2)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
+    return R * c
+
+
+# In[74]:
+
+
+df["cust_merch_distance_km"] = haversine_km(df["lat"], df["long"],
+                                            df["merch_lat"], df["merch_long"])
+
+
+# #### Data Checking
+
+# In[75]:
+
+
+# Check for any missing values
+df.isna().sum()
+
+
+# ### Database: PostgreSQL
+
+# In[ ]:
+
+
+import os
+import subprocess
+
+if subprocess.run(["docker", "start", "postgresql"]).returncode != 0:
+    subprocess.run([
+        "docker", "run",
+        "--name", "postgresql",
+        "-e", "POSTGRES_USER=user",
+        "-e", "POSTGRES_PASSWORD=password",
+        "-e", "POSTGRES_DB=database",
+        "-p", "5432:5432",
+        "-d", "postgres:16"
+    ])
+
+
+# In[77]:
+
+
+DB_USER = "user"
+DB_PASS = "password"
+DB_HOST = "localhost"
+DB_PORT = "5432"
+DB_NAME = "database"
+
+DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+
+# In[78]:
+
+
+engine = create_engine(DATABASE_URL, echo=False, future=True)
+
+
+# In[79]:
+
+
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT version();"))
+    print(result.scalar())
+
+
+# #### Star Schema Creation
+
+# ##### Star Schema Creation: Customer Dimension
+
+# In[80]:
+
+
+# factorize returns consistent integer codes for each unique cc_num
+df["customer_id"], customer_unique = pd.factorize(df["cc_num"])
+df["customer_id"] = df["customer_id"] + 1  # make it 1-based instead of 0-based
+
+
+# In[81]:
+
+
+customer_cols = [
+    "customer_id",
+    "cc_num", "first", "last", "gender",
+    "street", "city", "state", "zip",
+    "lat", "long", "city_pop", "job", "dob"
+]
+
+
+# In[82]:
+
+
+dim_customer = (
+    df[customer_cols]
+    .drop_duplicates("customer_id")
+    .sort_values("customer_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Star Schema Creation: Merchant Dimension
+
+# In[83]:
+
+
+df["merchant_id"], merchant_unique = pd.factorize(df["merchant"])
+df["merchant_id"] = df["merchant_id"] + 1
+
+
+# In[84]:
+
+
+dim_merchant = (
+    df[["merchant_id", "merchant", "merch_lat", "merch_long"]]
+    .drop_duplicates("merchant_id")
+    .sort_values("merchant_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Star Schema Creation: Category Dimension
+
+# In[85]:
+
+
+df["category_id"], category_unique = pd.factorize(df["category"])
+df["category_id"] = df["category_id"] + 1
+
+
+# In[86]:
+
+
+dim_category = (
+    df[["category_id", "category"]]
+    .drop_duplicates("category_id")
+    .sort_values("category_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Star Schema Creation: Date Dimension
+
+# In[87]:
+
+
+# This uses the actual transaction date (not datetime) as the key
+df["date_id"], date_unique = pd.factorize(df["trans_date"])
+df["date_id"] = df["date_id"] + 1
+
+
+# In[88]:
+
+
+dim_date = (
+    df[[
+        "date_id",
+        "trans_date",
+        "year",
+        "month",
+        "day_of_week",
+        "is_weekend",
+        "year_month"
+    ]]
+    .copy()
+)
+
+# Extract day from trans_date
+dim_date["day"] = pd.to_datetime(dim_date["trans_date"]).dt.day
+
+dim_date = (
+    dim_date
+    .drop_duplicates("date_id")
+    .sort_values("date_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Fact Table Creation
+
+# In[89]:
+
+
+fact_transactions = df[[
+    "trans_num",
+    "customer_id",
+    "merchant_id",
+    "category_id",
+    "date_id",
+    "trans_date_trans_time",
+    "unix_time",
+    "amt",
+    "is_fraud",
+    "year",
+    "month",
+    "hour",
+    "is_weekend",
+    "cust_merch_distance_km",
+    "split"
+]].copy()
+
+# Create surrogate transaction_id
+fact_transactions.insert(0, "transaction_id", range(1, len(fact_transactions) + 1))
+
+
+# #### Star Schema Loading
+
+# In[ ]:
+
+
+schema_ddl = """
+DROP TABLE IF EXISTS fact_transactions CASCADE;
+DROP TABLE IF EXISTS dim_date CASCADE;
+DROP TABLE IF EXISTS dim_category CASCADE;
+DROP TABLE IF EXISTS dim_merchant CASCADE;
+DROP TABLE IF EXISTS dim_customer CASCADE;
+
+CREATE TABLE dim_customer (
+    customer_id      BIGINT PRIMARY KEY,
+    cc_num           TEXT UNIQUE,
+    first            TEXT,
+    last             TEXT,
+    gender           VARCHAR(1),
+    street           TEXT,
+    city             TEXT,
+    state            TEXT,
+    zip              TEXT,
+    lat              DOUBLE PRECISION,
+    long             DOUBLE PRECISION,
+    city_pop         BIGINT,
+    job              TEXT,
+    dob              DATE
+);
+
+CREATE TABLE dim_merchant (
+    merchant_id      BIGINT PRIMARY KEY,
+    merchant_name    TEXT,
+    merch_lat        DOUBLE PRECISION,
+    merch_long       DOUBLE PRECISION
+);
+
+CREATE TABLE dim_category (
+    category_id      BIGINT PRIMARY KEY,
+    category_name    TEXT UNIQUE
+);
+
+CREATE TABLE dim_date (
+    date_id       BIGINT PRIMARY KEY,
+    trans_date    DATE UNIQUE,
+    year          INT,
+    month         INT,
+    day           INT,
+    day_of_week   TEXT,
+    is_weekend    BOOLEAN,
+    year_month    TEXT
+);
+
+CREATE TABLE fact_transactions (
+    transaction_id          BIGINT PRIMARY KEY,
+    trans_num               TEXT UNIQUE,
+    customer_id             BIGINT REFERENCES dim_customer(customer_id),
+    merchant_id             BIGINT REFERENCES dim_merchant(merchant_id),
+    category_id             BIGINT REFERENCES dim_category(category_id),
+    date_id                 BIGINT REFERENCES dim_date(date_id),
+    trans_ts                TIMESTAMP,
+    unix_time               BIGINT,
+    amt                     DOUBLE PRECISION,
+    is_fraud                SMALLINT,
+    year                    INT,
+    month                   INT,
+    hour                    INT,
+    is_weekend              BOOLEAN,
+    cust_merch_distance_km  DOUBLE PRECISION,
+    split                   TEXT
+);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(schema_ddl))
+
+
+# ##### Star Schema Loading: Customer Dimension, Merchant Dimension, Category Dimension, Date Dimension
+
+# In[91]:
+
+
+dim_customer_for_db = dim_customer.rename(columns={
+    "cc_num": "cc_num",
+    "first": "first",
+    "last": "last",
+    "gender": "gender",
+    "street": "street",
+    "city": "city",
+    "state": "state",
+    "zip": "zip",
+    "lat": "lat",
+    "long": "long",
+    "city_pop": "city_pop",
+    "job": "job",
+    "dob": "dob"
+})
+
+dim_merchant_for_db = dim_merchant.rename(columns={
+    "merchant": "merchant_name"
+})
+
+dim_category_for_db = dim_category.rename(columns={
+    "category": "category_name"
+})
+
+dim_date_for_db = dim_date.rename(columns={
+    "trans_date": "trans_date"
+})
+
+
+# In[ ]:
+
+
+# Use chunksize to avoid memory issues, though these dims are small.
+dim_customer_for_db.to_sql("dim_customer", con=engine, if_exists="append", index=False, method="multi")
+dim_merchant_for_db.to_sql("dim_merchant", con=engine, if_exists="append", index=False, method="multi")
+dim_category_for_db.to_sql("dim_category", con=engine, if_exists="append", index=False, method="multi")
+dim_date_for_db.to_sql("dim_date", con=engine, if_exists="append", index=False, method="multi")
+
+
+# ##### Fact Table Loading
+
+# In[93]:
+
+
+fact_for_db = fact_transactions.rename(columns={
+    "trans_date_trans_time": "trans_ts"
+})
+
+fact_for_db.to_sql(
+    "fact_transactions",
+    con=engine,
+    if_exists="append",
+    index=False,
+    method="multi",
+    chunksize=10000
+)
+
+
+# #### Indexing and Peformance Tuning
+
+# In[ ]:
+
+
+index_sql = """
+CREATE INDEX IF NOT EXISTS idx_fact_date_id ON fact_transactions(date_id);
+CREATE INDEX IF NOT EXISTS idx_fact_merchant_id ON fact_transactions(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_fact_category_id ON fact_transactions(category_id);
+CREATE INDEX IF NOT EXISTS idx_fact_is_fraud ON fact_transactions(is_fraud);
+CREATE INDEX IF NOT EXISTS idx_fact_date_fraud ON fact_transactions(date_id, is_fraud);
+CREATE INDEX IF NOT EXISTS idx_fact_merchant_fraud ON fact_transactions(merchant_id, is_fraud);
+CREATE INDEX IF NOT EXISTS idx_fact_category_fraud ON fact_transactions(category_id, is_fraud);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(index_sql))
+
+
+# #### Metric Definitions and Aggregate Tables
+
+# ##### Materialized View: Aggregate Daily Fraud
+
+# In[95]:
+
+
+agg_daily_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_daily_fraud;
+
+CREATE MATERIALIZED VIEW agg_daily_fraud AS
+SELECT
+    d.trans_date,
+    d.year,
+    d.month,
+    d.day,
+    d.day_of_week,
+    d.is_weekend,
+    d.year_month,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_date d ON f.date_id = d.date_id
+GROUP BY d.trans_date, d.year, d.month, d.day, d.day_of_week, d.is_weekend, d.year_month
+ORDER BY d.trans_date;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_daily_sql))
+
+
+# In[96]:
+
+
+idx_daily_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_daily_date ON agg_daily_fraud(trans_date);
+CREATE INDEX IF NOT EXISTS idx_agg_daily_year_month ON agg_daily_fraud(year_month);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_daily_sql))
+
+
+# ##### Materialized View: Aggregate Monthly Fraud
+
+# In[97]:
+
+
+agg_monthly_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_monthly_fraud;
+
+CREATE MATERIALIZED VIEW agg_monthly_fraud AS
+SELECT
+    d.year,
+    d.month,
+    d.year_month,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_date d ON f.date_id = d.date_id
+GROUP BY d.year, d.month, d.year_month
+ORDER BY d.year, d.month;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_monthly_sql))
+
+
+# In[98]:
+
+
+idx_monthly_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_monthly_year_month ON agg_monthly_fraud(year_month);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_monthly_sql))
+
+
+# ##### Materialized View: Aggregate Merchant Fraud
+
+# In[99]:
+
+
+agg_merchant_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_merchant_fraud;
+
+CREATE MATERIALIZED VIEW agg_merchant_fraud AS
+SELECT
+    m.merchant_id,
+    m.merchant_name,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_merchant m ON f.merchant_id = m.merchant_id
+GROUP BY m.merchant_id, m.merchant_name
+ORDER BY fraud_rate DESC;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_merchant_sql))
+
+
+# In[100]:
+
+
+idx_merchant_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_merchant_fraud_rate
+    ON agg_merchant_fraud(fraud_rate DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agg_merchant_name
+    ON agg_merchant_fraud(merchant_name);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_merchant_sql))
+
+
+# ##### Materialized View: Aggregate Category Fraud
+
+# In[101]:
+
+
+agg_category_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_category_fraud;
+
+CREATE MATERIALIZED VIEW agg_category_fraud AS
+SELECT
+    c.category_id,
+    c.category_name,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_category c ON f.category_id = c.category_id
+GROUP BY c.category_id, c.category_name
+ORDER BY fraud_rate DESC;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_category_sql))
+
+
+# In[102]:
+
+
+idx_category_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_category_fraud_rate
+    ON agg_category_fraud(fraud_rate DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agg_category_name
+    ON agg_category_fraud(category_name);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_category_sql))
+
+
+# #### Exporting: Snapshot
+
+# In[ ]:
+
+
+import os
+import subprocess
+
+subprocess.run([
+    "docker", "exec",
+    "-e", "PGPASSWORD=password",
+    "-t",
+    "postgresql",
+    "pg_dump",
+    "-U", "user",
+    "-d", "database",
+    "-Fc",
+    "-f", "/tmp/fraudData_snapshot.dump"
+], check=True)
+
+subprocess.run([
+    "docker", "cp",
+    "postgresql:/tmp/fraudData_snapshot.dump",
+    "./fraudData_snapshot.dump"
+], check=True)
+
+
+# ### Validation
+
+# In[104]:
+
+
+with engine.connect() as conn:
+    print("Daily Fraud Head:")
+    res = conn.execute(text("SELECT * FROM agg_daily_fraud ORDER BY trans_date LIMIT 5;"))
+    for row in res:
+        print(row)
+
+    print("\nTop 5 Merchants by fraud_rate:")
+    res = conn.execute(text("""
+        SELECT merchant_name, total_tx, fraud_tx, fraud_rate
+        FROM agg_merchant_fraud
+        ORDER BY fraud_rate DESC
+        LIMIT 5;
+    """))
+    for row in res:
+        print(row)
+
+    print("\nTop 5 Categories by fraud_rate:")
+    res = conn.execute(text("""
+        SELECT category_name, total_tx, fraud_tx, fraud_rate
+        FROM agg_category_fraud
+        ORDER BY fraud_rate DESC
+        LIMIT 5;
+    """))
+    for row in res:
+        print(row)
+```
+
+'scripts/init_postgresql.py'
+```
+# scripts/init_db_from_snapshot.py
+
+import os
+import time
+import subprocess
+from dotenv import load_dotenv
+
+def main():
+    load_dotenv()
+
+    # db_host = os.getenv("DB_HOST", "localhost")
+    # db_port = os.getenv("DB_PORT", "5432")
+    # db_user = os.getenv("DB_USER", "user")
+    # db_password = os.getenv("DB_PASSWORD", "password")
+    # db_name = os.getenv("DB_NAME", "database")
+
+    snapshot_path = os.path.join("data", "fraudData", "fraudData_snapshot.dump")
+    if not os.path.exists(snapshot_path):
+        raise FileNotFoundError(
+            f"Snapshot file not found at {snapshot_path}. "
+        )
+
+    if subprocess.run(["docker", "start", "postgresql"]).returncode != 0:
+        subprocess.run([
+            "docker", "run",
+            "--name", "postgresql",
+            "-e", "POSTGRES_USER=user",
+            "-e", "POSTGRES_PASSWORD=password",
+            "-e", "POSTGRES_DB=database",
+            "-p", "5432:5432",
+            # "-v", f"{os.getcwd()}/postgresql:/var/lib/postgresql/data",
+            "-d", "postgres:16"
+        ], check=True)
+
+    time.sleep(15)
+
+    subprocess.run([
+        "docker", "cp",
+        snapshot_path,              
+        "postgresql:/tmp/fraudData_snapshot.dump"
+    ], check=True)
+
+    time.sleep(15)
+
+    subprocess.run([
+        "docker", "exec",
+        "-e", "PGPASSWORD=password",
+        "postgresql",
+        "pg_restore",
+        "-c",
+        "-U", "user",
+        "-d", "database",
+        "/tmp/fraudData_snapshot.dump"
+    ], check=True)
+    
+    print("Database restored from snapshot successfully.")
+
+if __name__ == "__main__":
+    main()
+```
+
+
+'data/Understanding Credit Card Frauds/data_processing_Understanding Credit Card Frauds.ipynb'
+```
+#!/usr/bin/env python
+# coding: utf-8
+
+# ## Indexing
+
+# ### Import
+
+# In[153]:
+
+
+import os
+import re
+import uuid
+from dataclasses import dataclass
+from typing import List, Dict, Optional
+
+import json
+import numpy as np
+from tqdm.auto import tqdm
+
+from docx import Document
+
+import nltk
+from nltk.tokenize import sent_tokenize
+nltk.download("punkt")
+
+import torch
+from sentence_transformers import SentenceTransformer, CrossEncoder
+
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import QueryResponse
+from qdrant_client.http import models as qmodels
+
+
+# ### Config & Variables
+
+# In[109]:
+
+
+docx_path = "Bhatla_Description.docx"
+
+qdrant_url = "http://localhost:6333"
+qdrant_collection = "bhatla_credit_fraud"
+
+embed_model_name = "BAAI/bge-base-en-v1.5"
+embed_dim = 768
+
+reranker_model_name = "BAAI/bge-reranker-base"
+
+max_tokens_per_chunk = 256
+chunk_overlap_sentences = 1
+
+
+# In[110]:
+
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Device: {device}")
+
+
+# ### Dataclass
+
+# In[111]:
+
+
+# for Paragraph or Heading
+@dataclass
+class RawElement:
+    type: str
+    level: Optional[int]
+    text: str
+
+# for Section
+@dataclass
+class Block:
+    section: Optional[str]
+    subsection: Optional[str]
+    text: str
+    block_index: int
+
+# for Text
+@dataclass
+class Chunk:
+    chunk_id: str
+    section: Optional[str]
+    subsection: Optional[str]
+    block_index: int
+    chunk_index: int
+    text: str
+
+
+# In[112]:
+
+
+bullet_chars = ["•", "·", "●", "■", "▪", "¤", "-", "–", "—"]
+
+def clean_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+def is_all_caps(text: str) -> bool:
+    stripped = re.sub(r"[^A-Za-z]", "", text)
+    return stripped.isupper() and len(stripped) > 3
+
+
+# ### Data Pre-Processing
+
+# #### Data Parsing
+
+# In[113]:
+
+
+def parse_docx_to_raw_elements(docx_path: str) -> List[RawElement]:
+    doc = Document(docx_path)
+    elements: List[RawElement] = []
+
+    for para in doc.paragraphs:
+        text = clean_text(para.text)
+        if not text:
+            continue
+
+        style_name = para.style.name if para.style else ""
+
+        level = None
+        elem_type = "paragraph"
+
+        if style_name.startswith("Heading"):
+            elem_type = "heading"
+            try:
+                level = int(style_name.split()[-1])
+            except ValueError:
+                level = 1
+        else:
+            if is_all_caps(text) and len(text.split()) <= 6:
+                elem_type = "heading"
+                level = 2
+
+        elements.append(RawElement(type=elem_type, level=level, text=text))
+
+    return elements
+
+
+# In[114]:
+
+
+raw_elements = parse_docx_to_raw_elements(docx_path)
+print(f"Number of Raw Elements: {len(raw_elements)}")
+print("First 5 Raw Elements:")
+for el in raw_elements[:5]:
+    print(f"  type={el.type}, level={el.level}, text='{el.text[:80]}...'")
+
+
+# In[115]:
+
+
+def build_blocks_from_elements(elements: List[RawElement]) -> List[Block]:
+    blocks: List[Block] = []
+    current_section: Optional[str] = None
+    current_subsection: Optional[str] = None
+    current_paragraphs: List[str] = []
+    block_index = 0
+
+    def flush_block():
+        nonlocal block_index, current_paragraphs
+        if current_paragraphs:
+            text = " ".join(current_paragraphs).strip()
+            blocks.append(
+                Block(
+                    section=current_section,
+                    subsection=current_subsection,
+                    text=text,
+                    block_index=block_index,
+                )
+            )
+            block_index += 1
+            current_paragraphs = []
+
+    for el in elements:
+        if el.type == "heading":
+            flush_block()
+            if el.level is None or el.level == 1:
+                current_section = el.text
+                current_subsection = None
+            elif el.level == 2:
+                current_subsection = el.text
+            else:
+                current_paragraphs.append(el.text)
+        else:
+            current_paragraphs.append(el.text)
+
+    flush_block()
+
+    return blocks
+
+
+# In[116]:
+
+
+blocks = build_blocks_from_elements(raw_elements)
+print(f"Number of Blocks: {len(blocks)}")
+print("First 5 Blocks:")
+for b in blocks[:5]:
+    print(f"  block_index={b.block_index}, section={b.section}, subsection={b.subsection}")
+    print(f"    text='{b.text[:120]}...'")
+
+
+# In[140]:
+
+
+total_block_chars = sum(len(b.text) for b in blocks)
+total_block_words = sum(len(b.text.split()) for b in blocks)
+
+print("Blocks")
+print(f"  Number of Blocks: {len(blocks)}")
+print(f"  Number of Characters: {total_block_chars}")
+print(f"  Number of Words: {total_block_words}")
+print(f"  Chars per Block: {total_block_chars / len(blocks):.2f}")
+print(f"  Words per Block: {total_block_words / len(blocks):.2f}")
+
+
+# #### Data Splitting
+
+# In[117]:
+
+
+def split_into_sentences(text: str) -> List[str]:
+    sentences = sent_tokenize(text)
+    return [s.strip() for s in sentences if s.strip()]
+
+
+# In[118]:
+
+
+def chunk_block(
+    blk: Block,
+    max_tokens: int = max_tokens_per_chunk,
+    overlap_sentences: int = chunk_overlap_sentences,
+) -> List[Chunk]:
+    sentences = split_into_sentences(blk.text)
+    chunks_list: List[Chunk] = []
+    current_sentences: List[str] = []
+    current_count = 0
+    chunk_index = 0
+
+    i = 0
+    while i < len(sentences):
+        s = sentences[i]
+        num_tokens = len(s.split())
+
+        if current_sentences and current_count + num_tokens > max_tokens:
+            chunk_text = " ".join(current_sentences).strip()
+            chunk_id = str(uuid.uuid4())
+            chunks_list.append(
+                Chunk(
+                    chunk_id=chunk_id,
+                    section=blk.section,
+                    subsection=blk.subsection,
+                    block_index=blk.block_index,
+                    chunk_index=chunk_index,
+                    text=chunk_text,
+                )
+            )
+            chunk_index += 1
+
+            overlap = current_sentences[-overlap_sentences:] if overlap_sentences > 0 else []
+            current_sentences = overlap.copy()
+            current_count = sum(len(sen.split()) for sen in current_sentences)
+
+        current_sentences.append(s)
+        current_count += num_tokens
+        i += 1
+
+    if current_sentences:
+        chunk_text = " ".join(current_sentences).strip()
+        chunk_id = str(uuid.uuid4())
+        chunks_list.append(
+            Chunk(
+                chunk_id=chunk_id,
+                section=blk.section,
+                subsection=blk.subsection,
+                block_index=blk.block_index,
+                chunk_index=chunk_index,
+                text=chunk_text,
+            )
+        )
+
+    return chunks_list
+
+
+def build_all_chunks(blocks: List[Block]) -> List[Chunk]:
+    all_chunks: List[Chunk] = []
+    for blk in blocks:
+        block_chunks = chunk_block(blk)
+        all_chunks.extend(block_chunks)
+    return all_chunks
+
+
+# In[119]:
+
+
+chunks = build_all_chunks(blocks)
+print(f"Number of Chunks: {len(chunks)}")
+print("Sample Chunk:")
+print(f"  id={chunks[0].chunk_id}")
+print(f"  section={chunks[0].section}, subsection={chunks[0].subsection}")
+print(f"  text length (chars)={len(chunks[0].text)}")
+print(f"  text snippet='{chunks[0].text[:200]}...'")
+
+
+# In[142]:
+
+
+chunk_word_lengths = [len(c.text.split()) for c in chunks]
+chunk_char_lengths = [len(c.text) for c in chunks]
+
+print("Chunks")
+print(f"  Number of Chunks: {len(chunks)}")
+print(f"  Number of Characters: {sum(chunk_char_lengths)}")
+print(f"  Number of Words: {sum(chunk_word_lengths)}")
+print(f"  Chars per Chunk: {np.mean(chunk_char_lengths):.2f}")
+print(f"  Words per Chunk: {np.mean(chunk_word_lengths):.2f}")
+print(f"  Min. Words per Chunk: {np.min(chunk_word_lengths)}")
+print(f"  Max. Words per Chunk: {np.max(chunk_word_lengths)}")
+
+
+# #### Exporting: Chunk
+
+# In[154]:
+
+
+chunk_records = [
+    {
+        "chunk_id": c.chunk_id,
+        "section": c.section,
+        "subsection": c.subsection,
+        "block_index": c.block_index,
+        "chunk_index": c.chunk_index,
+        "text": c.text,
+    }
+    for c in chunks
+]
+
+with open("Bhatla_chunks.json", "w", encoding="utf-8") as f:
+    json.dump(chunk_records, f, ensure_ascii=False, indent=2)
+
+
+# ### Embedding: BAAI/bge-base-en-v1.5
+
+# #### Embedding Model
+
+# In[120]:
+
+
+embed_model = SentenceTransformer(embed_model_name, device=device)
+print(f"Embedding Model: '{embed_model_name}' on Device: {device}")
+
+
+# #### Embedding Function
+
+# In[121]:
+
+
+def embed_texts(texts: List[str], batch_size: int = 32, is_query: bool = False) -> np.ndarray:
+    if is_query:
+        prefixed = [f"query: {t}" for t in texts]
+    else:
+        prefixed = [f"passage: {t}" for t in texts]
+    embeddings = embed_model.encode(
+        prefixed,
+        batch_size=batch_size,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+        show_progress_bar=True,
+    )
+    return embeddings
+
+def embed_query(query: str) -> np.ndarray:
+    return embed_texts([query], batch_size=1, is_query=True)[0]
+
+
+# In[122]:
+
+
+chunk_texts = [c.text for c in chunks]
+print(f"Embedding {len(chunk_texts)} Chunks...")
+chunk_embeddings = embed_texts(chunk_texts, batch_size=32, is_query=False)
+
+
+# In[123]:
+
+
+print("Embedding Shape:", chunk_embeddings.shape)
+assert chunk_embeddings.shape[0] == len(chunks)
+assert chunk_embeddings.shape[1] == embed_dim
+
+
+# #### Exporting: Embedding
+
+# In[143]:
+
+
+np.save("Bhatla_embeddings.npy", chunk_embeddings)
+
+
+# ### Reranker: BAAI/bge-reranker-base
+
+# #### Reranker Model
+
+# In[124]:
+
+
+reranker = CrossEncoder(
+    reranker_model_name,
+    device=device,
+    max_length=512,
+    trust_remote_code=True,
+)
+print(f"Reranker Model: '{reranker_model_name}' on Device: {device}")
+
+
+# #### Reranker Function
+
+# In[125]:
+
+
+def rerank_with_bge_reranker(
+    query: str,
+    retrieved_results: List[Dict],
+    top_k: Optional[int] = None,
+) -> List[Dict]:
+    if not retrieved_results:
+        return []
+
+    texts = [r["payload"]["text"] for r in retrieved_results]
+    pairs = [(query, t) for t in texts]
+
+    scores = reranker.predict(pairs)
+
+    for r, s in zip(retrieved_results, scores):
+        r["rerank_score"] = float(s)
+
+    reranked = sorted(retrieved_results, key=lambda x: x["rerank_score"], reverse=True)
+
+    if top_k is not None:
+        reranked = reranked[:top_k]
+
+    return reranked
+
+
+# ### Vector Store: Qdrant
+
+# #### Vector Store Setup and Connection
+
+# In[ ]:
+
+
+import os
+import subprocess
+
+os.makedirs("qdrant", exist_ok=True)
+
+if subprocess.run(["docker", "start", "qdrant"]).returncode != 0:
+    subprocess.run([
+        "docker", "run", "-d",
+        "--name", "qdrant",
+        "-p", "6333:6333",
+        "-v", f"{os.getcwd()}\\qdrant:/qdrant/storage",
+        "qdrant/qdrant:latest"
+    ])
+
+
+# In[126]:
+
+
+qdrant = QdrantClient(url=qdrant_url)
+print(f"Qdrant at {qdrant_url}")
+
+
+# In[127]:
+
+
+def recreate_collection_if_needed(
+    client: QdrantClient,
+    collection_name: str,
+    vector_dim: int,
+):
+    if client.collection_exists(collection_name):
+        client.delete_collection(collection_name)
+        print(f"Deleted Old Collection '{collection_name}'")
+
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=qmodels.VectorParams(
+            size=vector_dim,
+            distance=qmodels.Distance.COSINE,
+        ),
+    )
+    print(f"Created New Collection '{collection_name}' with Dimension:{vector_dim}")
+
+recreate_collection_if_needed(qdrant, qdrant_collection, embed_dim)
+
+
+# #### Vector Store Upload
+
+# In[128]:
+
+
+def upload_chunks_to_qdrant(
+    client: QdrantClient,
+    collection_name: str,
+    chunks: List[Chunk],
+    embeddings: np.ndarray,
+    batch_size: int = 128,
+):
+    assert len(chunks) == embeddings.shape[0]
+    total = len(chunks)
+    uploaded = 0
+
+    for i in tqdm(range(0, len(chunks), batch_size), desc="Uploading to Qdrant"):
+        batch_chunks = chunks[i : i + batch_size]
+        batch_vectors = embeddings[i : i + batch_size]
+
+        points = []
+        for c, v in zip(batch_chunks, batch_vectors):
+            payload = {
+                "chunk_id": c.chunk_id,
+                "section": c.section,
+                "subsection": c.subsection,
+                "block_index": c.block_index,
+                "chunk_index": c.chunk_index,
+                "text": c.text,
+            }
+            points.append(
+                qmodels.PointStruct(
+                    id=c.chunk_id,
+                    vector=v.tolist(),
+                    payload=payload,
+                )
+            )
+
+        client.upsert(
+            collection_name=collection_name,
+            points=points,
+        )
+        uploaded += len(batch_chunks)
+
+    print(f"Uploaded {uploaded} / {total} Chunks to Qdrant Collection: '{collection_name}'")
+
+upload_chunks_to_qdrant(qdrant, qdrant_collection, chunks, chunk_embeddings)
+
+
+# In[129]:
+
+
+info = qdrant.get_collection(qdrant_collection)
+print("Qdrant Collection Info:")
+print(info)
+
+
+# #### Vector Store Search Function
+
+# In[130]:
+
+
+def search_qdrant(
+    client: QdrantClient,
+    collection_name: str,
+    query: str,
+    top_k: int = 20,
+) -> List[Dict]:
+    # 1. Turn the text query into an embedding
+    query_vector = embed_query(query)  # should return a 1D numpy array of length 768
+
+    # 2. Use the new universal query_points API
+    #    - `query` is the vector (list[float])
+    #    - It returns a QueryResponse, whose .points is a list[ScoredPoint]
+    response: QueryResponse = client.query_points(
+        collection_name=collection_name,
+        query=query_vector.tolist(),   # dense vector
+        limit=top_k,
+        with_payload=True,             # attach payloads to results
+        # with_vectors=False by default; set True if you also want stored vectors
+    )
+
+    # 3. Normalize output into your desired format
+    output: List[Dict] = []
+    for p in response.points:
+        output.append(
+            {
+                "id": p.id,
+                "score": p.score,
+                "payload": p.payload,
+                # you could optionally add "vector": p.vector if you call with_vectors=True
+            }
+        )
+    return output
+
+
+# ### Evaluation
+
+# #### Vector Store Search Function w/ Embedding
+
+# In[131]:
+
+
+test_query = "What is Application Fraud?"
+dense_test_results = search_qdrant(qdrant, qdrant_collection, test_query, top_k=3)
+print(f"Retrieval Results for Query: '{test_query}'")
+for i, r in enumerate(dense_test_results, start=1):
+    print(f"  rank {i}, score={r['score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+
+
+# In[132]:
+
+
+test_query = "What is the Technology for Detecting Credit Card Frauds?"
+dense_test_results = search_qdrant(qdrant, qdrant_collection, test_query, top_k=3)
+print(f"Retrieval Results for Query: '{test_query}'")
+for i, r in enumerate(dense_test_results, start=1):
+    print(f"  rank {i}, score={r['score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+
+
+# In[133]:
+
+
+test_query = "What is the Key to Minimize Cost of Review?"
+dense_test_results = search_qdrant(qdrant, qdrant_collection, test_query, top_k=3)
+print(f"Retrieval Results for Query: '{test_query}'")
+for i, r in enumerate(dense_test_results, start=1):
+    print(f"  rank {i}, score={r['score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+
+
+# #### Vector Store Search Function w/ Embedding & Reranking
+
+# In[134]:
+
+
+test_query = "What is Application Fraud?"
+dense_test_results = search_qdrant(qdrant, qdrant_collection, test_query, top_k=5)
+print(f"Retrieval Results for Query: '{test_query}'")
+for i, r in enumerate(dense_test_results, start=1):
+    print(f"  rank {i}, score={r['score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+    
+    
+reranked_test_results = rerank_with_bge_reranker(test_query, dense_test_results, top_k=5)
+print(f"\nReranked Retrieval Results for query: '{test_query}'")
+for i, r in enumerate(reranked_test_results, start=1):
+    print(f"  rerank {i}, rerank_score={r['rerank_score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+
+
+# In[135]:
+
+
+test_query = "What is the Technology for Detecting Credit Card Frauds?"
+dense_test_results = search_qdrant(qdrant, qdrant_collection, test_query, top_k=5)
+print(f"Retrieval Results for Query: '{test_query}'")
+for i, r in enumerate(dense_test_results, start=1):
+    print(f"  rank {i}, score={r['score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+    
+reranked_test_results = rerank_with_bge_reranker(test_query, dense_test_results, top_k=5)
+print(f"\nReranked Retrieval Results for query: '{test_query}'")
+for i, r in enumerate(reranked_test_results, start=1):
+    print(f"  rerank {i}, rerank_score={r['rerank_score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+
+
+# In[136]:
+
+
+test_query = "What is the Key to Minimize Cost of Review?"
+dense_test_results = search_qdrant(qdrant, qdrant_collection, test_query, top_k=5)
+print(f"Retrieval Results for Query: '{test_query}'")
+for i, r in enumerate(dense_test_results, start=1):
+    print(f"  rank {i}, score={r['score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+    
+reranked_test_results = rerank_with_bge_reranker(test_query, dense_test_results, top_k=5)
+print(f"\nReranked Retrieval Results for query: '{test_query}'")
+for i, r in enumerate(reranked_test_results, start=1):
+    print(f"  rerank {i}, rerank_score={r['rerank_score']:.4f}, section={r['payload'].get('section')}, subsection={r['payload'].get('subsection')}")
+    print(f"    text snippet='{r['payload']['text'][:150]}...'")
+```
+
+'scripts/init_qdrant.py'
+```
+# scripts/init_qdrant_bhatla.py
+
+import os
+import time
+import subprocess
+import json
+import numpy as np
+from dotenv import load_dotenv
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as qmodels
+
+def main():
+    load_dotenv()
+
+    qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+    collection_name = os.getenv("QDRANT_COLLECTION", "bhatla_credit_fraud")
+
+    base_dir = os.path.join("data", "Understanding Credit Card Frauds")
+    chunks_path = os.path.join(base_dir, "Bhatla_chunks.json")
+    embeddings_path = os.path.join(base_dir, "Bhatla_embeddings.npy")
+
+    if not os.path.exists(chunks_path):
+        raise FileNotFoundError(chunks_path)
+    if not os.path.exists(embeddings_path):
+        raise FileNotFoundError(embeddings_path)
+
+    with open(chunks_path, "r", encoding="utf-8") as f:
+        chunk_records = json.load(f)
+
+    embeddings = np.load(embeddings_path)
+    if len(chunk_records) != embeddings.shape[0]:
+        raise ValueError("Number of chunks and embeddings do not match.")
+
+    vector_dim = embeddings.shape[1]
+    
+    if subprocess.run(["docker", "start", "qdrant"]).returncode != 0:
+        subprocess.run([
+            "docker", "run", "-d",
+            "--name", "qdrant",
+            "-p", "6333:6333",
+            # "-v", f"{os.getcwd()}\\qdrant:/qdrant/storage",
+            "qdrant/qdrant:latest"
+        ])
+
+    client = QdrantClient(url=qdrant_url)
+    print(f"Connected to Qdrant at {qdrant_url}")
+
+    if client.collection_exists(collection_name):
+        client.delete_collection(collection_name)
+        print(f"Deleted old collection '{collection_name}'")
+
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=qmodels.VectorParams(
+            size=vector_dim,
+            distance=qmodels.Distance.COSINE,
+        ),
+    )
+    print(f"Created collection '{collection_name}' with dim={vector_dim}")
+
+    time.sleep(15)
+    
+    batch_size = 128
+    total = len(chunk_records)
+    uploaded = 0
+
+    for i in range(0, total, batch_size):
+        batch_records = chunk_records[i: i + batch_size]
+        batch_vectors = embeddings[i: i + batch_size]
+
+        points = []
+        for rec, vec in zip(batch_records, batch_vectors):
+            payload = {
+                "chunk_id": rec["chunk_id"],
+                "section": rec.get("section"),
+                "subsection": rec.get("subsection"),
+                "block_index": rec.get("block_index"),
+                "chunk_index": rec.get("chunk_index"),
+                "text": rec["text"],
+            }
+            points.append(
+                qmodels.PointStruct(
+                    id=rec["chunk_id"],
+                    vector=vec.tolist(),
+                    payload=payload,
+                )
+            )
+
+        client.upsert(collection_name=collection_name, points=points)
+        uploaded += len(batch_records)
+        print(f"Uploaded {uploaded}/{total} chunks")
+
+    print("Qdrant initialisation completed.")
+
+if __name__ == "__main__":
+    main()
+```
+
+
+'backend/app/main.py'
+```
+from typing import Any, Dict, List
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+
+from .config import get_settings
+from .schemas import ChatRequest, ChatResponse
+from .agent.graph import run_agent
+from .db import get_engine
+from .rag.qdrant_client import _qdrant_client  # type: ignore
+
+settings = get_settings()
+
+app = FastAPI(title="Fraud Q&A Chatbot")
+
+# CORS (allow localhost frontends; tighten for prod)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health() -> Dict[str, Any]:
+    # Simple health checks
+    db_ok = False
+    qdrant_ok = False
+
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            # SQLAlchemy 2.x: pass a text() object
+            conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    try:
+        _ = _qdrant_client.get_collections()
+        qdrant_ok = True
+    except Exception:
+        qdrant_ok = False
+
+    return {
+        "status": "ok" if db_ok and qdrant_ok else "degraded",
+        "db_ok": db_ok,
+        "qdrant_ok": qdrant_ok,
+        "model": settings.openai_model_name,
+    }
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    history_serialised: List[Dict[str, str]] = []
+    if request.history:
+        for m in request.history:
+            history_serialised.append(
+                {
+                    "role": m.role,
+                    "content": m.content,
+                }
+            )
+
+    state = run_agent(
+        question=request.question,
+        history=history_serialised,
+    )
+
+    answer = state.get("answer") or ""
+    answer_type = state.get("answer_type") or "unknown"
+    quality = float(state.get("quality_score") or 0.0)
+    sql = state.get("generated_sql")
+
+    sources: List[Dict[str, Any]] = []
+
+    if answer_type == "data":
+        rows = state.get("sql_result_rows") or []
+        sources.append(
+            {
+                "type": "sql_result",
+                "rows_preview": rows[:5],
+            }
+        )
+    elif answer_type == "document":
+        chunks = state.get("context_chunks") or []
+        doc_sources: List[Dict[str, Any]] = []
+        for c in chunks[:5]:
+            payload = c["payload"]
+            doc_sources.append(
+                {
+                    "section": payload.get("section"),
+                    "subsection": payload.get("subsection"),
+                    "snippet": payload["text"][:300],
+                    "rerank_score": c.get("rerank_score"),
+                }
+            )
+        sources.append(
+            {
+                "type": "document_chunks",
+                "chunks": doc_sources,
+            }
+        )
+
+    return ChatResponse(
+        answer=answer,
+        answer_type=answer_type,
+        quality_score=quality,
+        sql=sql,
+        sources=sources or None,
+    )
+```
+
+'backend/app/config.py'
+```
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    # Pydantic v2 style settings config
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # DB
+    db_host: str = Field("localhost", env="DB_HOST")
+    db_port: int = Field(5432, env="DB_PORT")
+    db_user: str = Field("user", env="DB_USER")
+    db_password: str = Field("password", env="DB_PASSWORD")
+    db_name: str = Field("database", env="DB_NAME")
+
+    # Qdrant
+    qdrant_url: str = Field("http://localhost:6333", env="QDRANT_URL")
+    qdrant_collection: str = Field("bhatla_credit_fraud", env="QDRANT_COLLECTION")
+
+    # OpenAI / GPT-5 Nano
+    openai_api_key: str = Field(..., env="OPENAI_API_KEY")
+    openai_model_name: str = Field("gpt-5-nano", env="OPENAI_MODEL_NAME")
+
+    # Embedding / reranker
+    embed_model_name: str = Field("BAAI/bge-base-en-v1.5", env="EMBED_MODEL_NAME")
+    reranker_model_name: str = Field("BAAI/bge-reranker-base", env="RERANKER_MODEL_NAME")
+
+    @property
+    def database_url(self) -> str:
+        return (
+            f"postgresql+psycopg2://{self.db_user}:"
+            f"{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+```
+
+'backend/app/db.py'
+```
+from functools import lru_cache
+
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+
+from .config import get_settings
+
+
+@lru_cache
+def get_engine() -> Engine:
+    settings = get_settings()
+    engine = create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        future=True,
+    )
+    return engine
+```
+
+'backend/app/schemas.py'
+```
+from typing import List, Dict, Any, Optional
+
+from pydantic import BaseModel, Field
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    question: str
+    history: Optional[List[ChatMessage]] = Field(default=None)
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    answer_type: str
+    quality_score: float
+    sql: Optional[str] = None
+    sources: Optional[List[Dict[str, Any]]] = None
+```
+
+'backend/app/agent/state.py'
+```
+from typing import List, Dict, Any, Optional, Literal
+
+from typing_extensions import TypedDict
+
+
+class AgentState(TypedDict, total=False):
+    question: str
+    history: List[Dict[str, str]]
+    route: Optional[Literal["data", "document", "none"]]
+
+    generated_sql: Optional[str]
+    sql_result_rows: Optional[List[Dict[str, Any]]]
+    sql_result_preview: Optional[str]
+
+    context_chunks: Optional[List[Dict[str, Any]]]
+
+    answer: Optional[str]
+    answer_type: Optional[str]
+    quality_score: Optional[float]
+```
+
+'backend/app/agent/graph.py'
+```
+from typing import Dict, Any, List, Optional
+
+from langgraph.graph import StateGraph, END
+
+from .state import AgentState
+from .router import router_node, fallback_answer_node
+from .data_nodes import generate_sql_node, run_sql_node, data_answer_node
+from .doc_nodes import retrieval_node, rag_answer_node
+from .scoring_node import scoring_node
+
+
+def _route_decider(state: AgentState) -> str:
+    route = state.get("route")
+    if route in ("data", "document", "none"):
+        return route  # type: ignore
+    # Default to none (fallback) if something weird happens
+    return "none"
+
+
+# Build LangGraph
+_graph = StateGraph(AgentState)
+
+_graph.add_node("router", router_node)
+_graph.add_node("generate_sql", generate_sql_node)
+_graph.add_node("run_sql", run_sql_node)
+_graph.add_node("data_answer", data_answer_node)
+_graph.add_node("retrieve", retrieval_node)
+_graph.add_node("rag_answer", rag_answer_node)
+_graph.add_node("fallback_answer", fallback_answer_node)
+_graph.add_node("score", scoring_node)
+
+_graph.set_entry_point("router")
+
+_graph.add_conditional_edges(
+    "router",
+    _route_decider,
+    {
+        "data": "generate_sql",
+        "document": "retrieve",
+        "none": "fallback_answer",
+    },
+)
+
+_graph.add_edge("generate_sql", "run_sql")
+_graph.add_edge("run_sql", "data_answer")
+_graph.add_edge("data_answer", "score")
+
+_graph.add_edge("retrieve", "rag_answer")
+_graph.add_edge("rag_answer", "score")
+
+_graph.add_edge("fallback_answer", "score")
+
+_graph.add_edge("score", END)
+
+_app = _graph.compile()
+
+
+def run_agent(
+    question: str,
+    history: Optional[List[Dict[str, str]]] = None,
+) -> AgentState:
+    initial_state: AgentState = {
+        "question": question,
+        "history": history or [],
+    }
+    final_state: AgentState = _app.invoke(initial_state)
+    return final_state
+```
+
+'backend/app/agent/router.py'
+```
+from .state import AgentState
+from ..llm.client import call_gpt5_nano, call_gpt5_mini
+
+ROUTER_SYSTEM_PROMPT = (
+    "You are a router for an internal fraud-analytics assistant.\n"
+    "This assistant has access to exactly two internal knowledge sources:\n\n"
+    "1) data: tabular credit-card transaction data\n"
+    "   This data contains credit-card transactions where each row represents a single purchase "
+    "   made by a cardholder and includes detailed information about the transaction time, amount, "
+    "   merchant, category, customer demographics, home location, merchant location, and a binary "
+    "   label indicating whether the transaction is fraudulent.\n\n"
+    "2) document: a conceptual white paper called \"Understanding Credit Card Frauds\"\n"
+    "   This document contains a 2003-era white paper that explains the growing problem of credit "
+    "   card fraud, detailing how fraud is committed (including application fraud, lost/stolen and "
+    "   counterfeit cards, skimming, merchant collusion, triangulation schemes, and internet-based "
+    "   attacks such as site cloning, fake merchant sites, and card number generators), "
+    "   quantifying global and country-specific loss trends, and analyzing the impact on cardholders "
+    "   (limited liability), merchants (full liability, chargebacks, fees, admin overhead, and "
+    "   reputation damage), and banks (direct losses plus high prevention and operational costs). "
+    "   It reviews both basic and advanced fraud prevention methods—manual review, Address "
+    "   Verification System, card verification codes, negative/positive lists, payer authentication "
+    "   (e.g., Verified by Visa), lockout mechanisms, and blacklists of fraudulent merchants—then "
+    "   describes more sophisticated techniques such as rule-based systems, statistical risk "
+    "   scoring, neural networks, biometrics, and smart card (EMV) technology. The paper’s central "
+    "   thesis is that effective fraud management is about minimizing the \"total cost of fraud\"—the "
+    "   sum of actual fraud losses and the cost of prevention—by using these tools to segment and "
+    "   prioritize transactions so that only the riskiest subset is subject to intensive review, "
+    "   thereby achieving an optimal balance between security, cost, and customer experience.\n\n"
+    "Your task:\n"
+    "- Choose 'data' if the question is primarily about analyzing the tabular credit-card "
+    "  transaction data (e.g., fraud rates, time trends, top merchants/categories, transaction "
+    "  patterns, customer or merchant-level statistics).\n"
+    "- Choose 'document' if the question is primarily about fraud concepts, mechanisms, definitions, "
+    "  or the authors' opinions as described in the white paper.\n"
+    "- Choose 'none' if the question is clearly unrelated to both the transaction dataset and the "
+    "  document, or if it cannot reasonably be answered using these two sources.\n\n"
+    "Return exactly one word: data, document, or none."
+)
+
+
+def router_node(state: AgentState) -> AgentState:
+    question = state["question"]
+    user_prompt = f"Question: {question}\n\nAnswer with exactly one word: data, document, or none."
+
+    raw = call_gpt5_nano(
+        ROUTER_SYSTEM_PROMPT,
+        user_prompt,
+        temperature=0.0,
+        max_tokens=4,
+    )
+    print("Router (by GPT-5 Nano) is Called")
+    route = raw.strip().lower()
+
+    if route not in ("data", "document", "none"):
+        # Fallback heuristic if the model returns something unexpected
+        q_lower = question.lower()
+
+        # Heuristic for data questions
+        if any(
+            word in q_lower
+            for word in [
+                "rate",
+                "trend",
+                "daily",
+                "monthly",
+                "time series",
+                "merchant",
+                "category",
+                "transaction",
+                "amount",
+                "volume",
+                "count",
+                "share",
+                "proportion",
+                "distribution",
+            ]
+        ):
+            route = "data"
+        # Heuristic for document questions
+        elif any(
+            word in q_lower
+            for word in [
+                "application fraud",
+                "lost/stolen",
+                "lost or stolen",
+                "counterfeit",
+                "skimming",
+                "merchant collusion",
+                "triangulation",
+                "internet",
+                "site cloning",
+                "neural network",
+                "fraud detection system",
+                "total cost of fraud",
+                "prevention",
+                "white paper",
+            ]
+        ):
+            route = "document"
+        else:
+            route = "none"
+
+    state["route"] = route  # type: ignore
+    return state
+
+
+FALLBACK_SYSTEM_PROMPT = (
+    "You are an assistant for an internal fraud-analytics tool. This tool is limited to:\n"
+    "- A specific credit-card transaction dataset (tabular data with transactions and fraud labels).\n"
+    "- A specific conceptual document: \"Understanding Credit Card Frauds\" (a 2003-era white paper).\n\n"
+    "If the user's question is outside the scope of these two resources, you must NOT pretend to "
+    "answer it using unrelated knowledge. Instead, explain clearly that this particular chatbot "
+    "is specialized for that dataset and document only, and that the question appears to be "
+    "outside its domain.\n\n"
+    "Be brief and honest. Do NOT mention any internal routing logic."
+)
+
+
+def fallback_answer_node(state: AgentState) -> AgentState:
+    question = state["question"]
+
+    user_prompt = (
+        f"User question:\n{question}\n\n"
+        "Explain that this tool is limited to the fraud dataset and the fraud document described "
+        "in the system prompt, and that the question does not seem to be answerable within that scope."
+    )
+
+    answer = call_gpt5_mini(
+        system_prompt=FALLBACK_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        temperature=0.2,
+        max_tokens=256,
+    )
+
+    state["answer"] = answer  # type: ignore
+    state["answer_type"] = "other"  # type: ignore
+    return state
+```
+
+'backend/app/agent/data_nodes.py'
+```
+from typing import List
+from decimal import Decimal
+from statistics import mean
+import numbers
+
+from .state import AgentState
+from ..llm.client import call_gpt5_mini
+from ..repositories.metrics_repo import run_sql_query
+
+
+SCHEMA_DESCRIPTION = """
+You can query the following PostgreSQL tables and materialized views.
+
+Dimension tables:
+
+1) dim_customer(
+    customer_id BIGINT,
+    cc_num TEXT,
+    first TEXT,
+    last TEXT,
+    gender VARCHAR(1),
+    street TEXT,
+    city TEXT,
+    state TEXT,
+    zip TEXT,
+    lat DOUBLE PRECISION,
+    long DOUBLE PRECISION,
+    city_pop BIGINT,
+    job TEXT,
+    dob DATE
+)
+
+2) dim_merchant(
+    merchant_id BIGINT,
+    merchant_name TEXT,
+    merch_lat DOUBLE PRECISION,
+    merch_long DOUBLE PRECISION
+)
+
+3) dim_category(
+    category_id BIGINT,
+    category_name TEXT
+)
+
+4) dim_date(
+    date_id BIGINT,
+    trans_date DATE,
+    year INT,
+    month INT,
+    day INT,
+    day_of_week TEXT,
+    is_weekend BOOLEAN,
+    year_month TEXT
+)
+
+Fact table:
+
+5) fact_transactions(
+    transaction_id BIGINT,
+    trans_num TEXT,
+    customer_id BIGINT,
+    merchant_id BIGINT,
+    category_id BIGINT,
+    date_id BIGINT,
+    trans_ts TIMESTAMP,
+    unix_time BIGINT,
+    amt DOUBLE PRECISION,
+    is_fraud SMALLINT,
+    year INT,
+    month INT,
+    hour INT,
+    is_weekend BOOLEAN,
+    cust_merch_distance_km DOUBLE PRECISION,
+    split TEXT
+)
+
+Pre-aggregated materialized views (preferred when appropriate):
+
+6) agg_daily_fraud(
+    trans_date DATE,
+    year INT,
+    month INT,
+    day INT,
+    day_of_week TEXT,
+    is_weekend BOOLEAN,
+    year_month TEXT,
+    total_tx BIGINT,
+    fraud_tx BIGINT,
+    fraud_rate DOUBLE PRECISION,
+    total_amount DOUBLE PRECISION,
+    fraud_amount DOUBLE PRECISION,
+    fraud_share_by_value DOUBLE PRECISION
+)
+
+7) agg_monthly_fraud(
+    year INT,
+    month INT,
+    year_month TEXT,
+    total_tx BIGINT,
+    fraud_tx BIGINT,
+    fraud_rate DOUBLE PRECISION,
+    total_amount DOUBLE PRECISION,
+    fraud_amount DOUBLE PRECISION,
+    fraud_share_by_value DOUBLE PRECISION
+)
+
+8) agg_merchant_fraud(
+    merchant_id BIGINT,
+    merchant_name TEXT,
+    total_tx BIGINT,
+    fraud_tx BIGINT,
+    fraud_rate DOUBLE PRECISION,
+    total_amount DOUBLE PRECISION,
+    fraud_amount DOUBLE PRECISION,
+    fraud_share_by_value DOUBLE PRECISION
+)
+
+9) agg_category_fraud(
+    category_id BIGINT,
+    category_name TEXT,
+    total_tx BIGINT,
+    fraud_tx BIGINT,
+    fraud_rate DOUBLE PRECISION,
+    total_amount DOUBLE PRECISION,
+    fraud_amount DOUBLE PRECISION,
+    fraud_share_by_value DOUBLE PRECISION
+)
+
+Guidance:
+
+- Whenever possible, prefer the agg_* materialized views for questions about overall
+  daily/monthly fraud rates, top merchants, top categories, and similar aggregated metrics.
+- If the question requires raw transaction-level details (e.g., specific customers, card numbers,
+  time-of-day patterns, individual transactions) or metrics that are not present in the views,
+  then use fact_transactions and join it to the dimension tables as needed:
+  - fact_transactions.customer_id = dim_customer.customer_id
+  - fact_transactions.merchant_id = dim_merchant.merchant_id
+  - fact_transactions.category_id = dim_category.category_id
+  - fact_transactions.date_id = dim_date.date_id
+
+Examples:
+
+Q: "How does the monthly fraud rate evolve over the entire period?"
+SQL:
+  SELECT year_month, fraud_rate
+  FROM agg_monthly_fraud
+  ORDER BY year, month;
+
+Q: "Which merchants have the highest fraud rate?"
+SQL:
+  SELECT merchant_name, total_tx, fraud_tx, fraud_rate
+  FROM agg_merchant_fraud
+  ORDER BY fraud_rate DESC
+  LIMIT 10;
+
+Q: "Which merchant categories exhibit the highest incidence of fraudulent transactions?"
+SQL:
+  SELECT category_name, total_tx, fraud_tx, fraud_rate
+  FROM agg_category_fraud
+  ORDER BY fraud_rate DESC
+  LIMIT 10;
+
+Q: "List the last 10 fraudulent transactions with customer name and merchant."
+SQL:
+  SELECT
+      f.trans_ts,
+      c.first AS customer_first,
+      c.last AS customer_last,
+      m.merchant_name,
+      f.amt,
+      f.is_fraud
+  FROM fact_transactions f
+  JOIN dim_customer c ON f.customer_id = c.customer_id
+  JOIN dim_merchant m ON f.merchant_id = m.merchant_id
+  WHERE f.is_fraud = 1
+  ORDER BY f.trans_ts DESC
+  LIMIT 10;
+
+Q: "What is the average transaction amount by hour of day for fraudulent transactions?"
+SQL:
+  SELECT
+      f.hour,
+      AVG(f.amt) AS avg_fraud_amount,
+      COUNT(*) AS fraud_tx
+  FROM fact_transactions f
+  WHERE f.is_fraud = 1
+  GROUP BY f.hour
+  ORDER BY f.hour;
+"""
+
+SQL_GEN_SYSTEM = (
+    "You generate a single PostgreSQL SELECT query against the tables and views described below.\n"
+    "Rules:\n"
+    "- You may use any of the listed tables and views.\n"
+    "- Prefer the agg_* materialized views when they already contain the metrics needed.\n"
+    "- If the views are not sufficient to answer the question (for example, if you need "
+    "transaction-level detail, specific customers, card numbers, or time-of-day patterns), "
+    "then use fact_transactions and join it with the dimension tables as appropriate.\n"
+    "- Only reference the tables and views that are listed in the schema description.\n"
+    "- Do not add comments.\n"
+    "- Do not wrap the query in backticks.\n\n"
+    f"{SCHEMA_DESCRIPTION}"
+)
+
+
+def generate_sql_node(state: AgentState) -> AgentState:
+    question = state["question"]
+    user_prompt = (
+        "Write a single PostgreSQL SELECT statement that answers the question.\n"
+        f"Question: {question}\n\n"
+        "Output only the SQL query."
+    )
+    sql = call_gpt5_mini(
+        system_prompt=SQL_GEN_SYSTEM,
+        user_prompt=user_prompt,
+        temperature=0.0,
+        max_tokens=512,
+    )
+    print("Text-to-SQL (by GPT-5 Mini) is Called")
+    sql = sql.strip().strip(";")
+    state["generated_sql"] = sql  # type: ignore
+    return state
+
+
+def _is_numeric(value) -> bool:
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, Decimal):
+        return True
+    if isinstance(value, numbers.Real) and not isinstance(value, bool):
+        return True
+    return False
+
+
+def run_sql_node(state: AgentState) -> AgentState:
+    sql = state.get("generated_sql")
+    if not sql:
+        state["sql_result_rows"] = []  # type: ignore
+        state["sql_result_preview"] = "No SQL generated."
+        return state
+
+    try:
+        print("Querying Data from Relational Database...")
+        rows = run_sql_query(sql, default_limit=200)
+        state["sql_result_rows"] = rows  # type: ignore
+
+        preview_lines: List[str] = []
+        preview_lines.append(
+            f"Total rows returned (capped at backend limit): {len(rows)}"
+        )
+
+        # Show up to 5 example rows
+        max_preview_rows = 5
+        for idx, row in enumerate(rows[:max_preview_rows]):
+            preview_lines.append(f"Row {idx+1}: {row}")
+
+        # Generic numeric summary statistics across all returned rows
+        if rows:
+            first_row = rows[0]
+            numeric_fields = [
+                k for k, v in first_row.items() if _is_numeric(v)
+            ]
+
+            stats_lines: List[str] = []
+            for field in numeric_fields:
+                values: List[float] = []
+                for r in rows:
+                    v = r.get(field)
+                    if _is_numeric(v):
+                        if isinstance(v, Decimal):
+                            v = float(v)
+                        values.append(float(v))
+                if values:
+                    stats_lines.append(
+                        f"Summary for '{field}': "
+                        f"min={min(values):.6g}, "
+                        f"mean={mean(values):.6g}, "
+                        f"max={max(values):.6g}"
+                    )
+
+            if stats_lines:
+                preview_lines.append("Summary statistics over all returned rows:")
+                preview_lines.extend(stats_lines)
+
+        state["sql_result_preview"] = (
+            "\n".join(preview_lines) if preview_lines else "No rows returned."
+        )
+    except Exception as e:
+        state["sql_result_rows"] = []  # type: ignore
+        state["sql_result_preview"] = f"Error executing SQL: {e}"
+
+    return state
+
+
+DATA_ANSWER_SYSTEM = (
+    "You are a data analyst. You are given:\n"
+    "- A user question.\n"
+    "- The SQL query used to answer it.\n"
+    "- A preview of the result rows, which may include summary statistics.\n\n"
+    "Your job:\n"
+    "1) First, directly answer the user's question using the information from the SQL results "
+    "(including any summary statistics). Use 1–3 short paragraphs.\n"
+    "2) Then, briefly mention any important limitations or caveats (for example, if the result "
+    "set is small, heavily filtered, or if the query may not perfectly match the question).\n"
+    "3) Do not spend more than one short paragraph describing the SQL itself.\n"
+    "If the result is empty or if there was an error, clearly say that and explain what might be wrong."
+)
+
+
+def data_answer_node(state: AgentState) -> AgentState:
+    question = state["question"]
+    sql = state.get("generated_sql") or ""
+    preview = state.get("sql_result_preview") or ""
+
+    user_prompt = (
+        f"Question:\n{question}\n\n"
+        f"SQL used:\n{sql}\n\n"
+        f"Result preview:\n{preview}\n\n"
+        "Now provide a concise but informative answer to the user, following the instructions above."
+    )
+
+    answer = call_gpt5_mini(
+        system_prompt=DATA_ANSWER_SYSTEM,
+        user_prompt=user_prompt,
+        temperature=0.2,
+        max_tokens=512,
+    )
+    print("Reasoning for Queried Data (by GPT-5 Mini) is Called")
+    
+    state["answer"] = answer  # type: ignore
+    state["answer_type"] = "data"  # type: ignore
+    return state
+```
+
+'backend/app/agent/doc_nodes.py'
+```
+from typing import List, Dict, Any
+
+from .state import AgentState
+from ..rag.qdrant_client import retrieve_relevant_chunks
+from ..llm.client import call_gpt5_mini
+
+
+def retrieval_node(state: AgentState) -> AgentState:
+    question = state["question"]
+    print("Retrieving Document from Vector Database...")
+    results = retrieve_relevant_chunks(question, top_k=10, use_reranker=True)
+    state["context_chunks"] = results  # type: ignore
+    return state
+
+
+DOC_ANSWER_SYSTEM = (
+    "You are answering questions strictly based on the document "
+    "“Understanding Credit Card Frauds”.\n\n"
+    "You will be given several relevant excerpts from the document. "
+    "Using only these excerpts (do not invent facts), answer the question.\n"
+    "If the excerpts do not contain enough information to fully answer, "
+    "say so clearly."
+)
+
+
+def _build_context(
+    chunks: List[Dict[str, Any]],
+    max_chars_per_chunk: int = 500,
+) -> str:
+    parts: List[str] = []
+    for i, c in enumerate(chunks, start=1):
+        payload = c["payload"]
+        section = payload.get("section")
+        subsection = payload.get("subsection")
+        text = payload["text"].replace("\n", " ")
+        snippet = text[:max_chars_per_chunk]
+        parts.append(
+            f"[{i}] Section: {section} | Subsection: {subsection}\n{snippet}\n"
+        )
+    return "\n".join(parts)
+
+
+def rag_answer_node(state: AgentState) -> AgentState:
+    question = state["question"]
+    chunks = state.get("context_chunks") or []
+
+    context = _build_context(chunks)
+
+    user_prompt = (
+        f"Excerpts from the document:\n{context}\n\n"
+        f"Question: {question}\n\n"
+        "Answer in clear language and refer implicitly to the document's content."
+    )
+
+    answer = call_gpt5_mini(
+        system_prompt=DOC_ANSWER_SYSTEM,
+        user_prompt=user_prompt,
+        temperature=0.2,
+        max_tokens=512,
+    )
+    print("Reasoning for Retrieved Document (by GPT-5 Mini) is Called")
+    
+    state["answer"] = answer  # type: ignore
+    state["answer_type"] = "document"  # type: ignore
+    return state
+```
+
+'backend/app/agent/scoring_node.py'
+```
+from typing import List, Dict, Any
+
+from .state import AgentState
+from ..llm.client import call_gpt5_nano
+
+SCORE_SYSTEM = (
+    "You are grading an answer.\n"
+    "Given a question, an answer, and some evidence, you must output a single number "
+    "between 0.0 and 1.0 (inclusive) representing how correct and well-supported the answer is.\n"
+    "0.0 means completely incorrect or unsupported. 1.0 means fully correct and well supported.\n"
+    "Return only the number, nothing else."
+)
+
+
+def scoring_node(state: AgentState) -> AgentState:
+    question = state["question"]
+    answer = state.get("answer") or ""
+
+    # Heuristic base score
+    base_score = 0.5
+
+    if state.get("answer_type") == "data":
+        rows = state.get("sql_result_rows") or []
+        preview = state.get("sql_result_preview") or ""
+        if rows and "Error executing SQL" not in preview:
+            base_score = 0.75
+        elif not rows:
+            base_score = 0.3
+        evidence = preview
+    else:
+        chunks: List[Dict[str, Any]] = state.get("context_chunks") or []
+        if chunks:
+            avg_rerank = sum(c.get("rerank_score", 0.0) for c in chunks) / len(chunks)
+            # crude sigmoid mapping to [0,1]
+            norm = 1 / (1 + pow(2.71828, -avg_rerank))
+            base_score = 0.6 + 0.3 * norm
+        else:
+            base_score = 0.3
+
+        snippets: List[str] = []
+        for c in chunks[:2]:
+            text = c["payload"]["text"].replace("\n", " ")
+            snippets.append(text[:300])
+        evidence = "\n\n".join(snippets)
+
+    user_prompt = (
+        f"Question:\n{question}\n\n"
+        f"Answer:\n{answer}\n\n"
+        f"Evidence:\n{evidence}\n\n"
+        "Score:"
+    )
+
+    try:
+        raw = call_gpt5_nano(
+            system_prompt=SCORE_SYSTEM,
+            user_prompt=user_prompt,
+            temperature=0.0,
+            max_tokens=10,
+        )
+        print("Scoring (by GPT-5 Nano) is Called")
+        raw = raw.strip()
+        score = float(raw)
+        score = max(0.0, min(1.0, score))
+    except Exception:
+        score = base_score
+
+    final_score = (base_score + score) / 2.0
+    state["quality_score"] = final_score  # type: ignore
+    return state
+```
+
+'backend/app/llm/client.py'
+```
+from typing import Optional
+
+from openai import OpenAI
+
+from ..config import get_settings
+
+settings = get_settings()
+
+_client = OpenAI(api_key=settings.openai_api_key)
+
+
+def call_gpt5_mini(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.0,
+    max_tokens: int = 512,
+) -> str:
+    """
+    Generic wrapper to call the GPT-5 Mini model (or any model name provided).
+
+    Uses openai==2.9.0 style:
+    client = OpenAI()
+    client.chat.completions.create(...)
+    """
+    completion = _client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        # temperature=temperature,
+        # max_completion_tokens=max_tokens,
+    )
+
+    content: Optional[str] = completion.choices[0].message.content
+    # print("GPT-5 Mini is Called")
+    return (content or "").strip()
+
+
+def call_gpt5_nano(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.0,
+    max_tokens: int = 512,
+) -> str:
+    """
+    Generic wrapper to call the GPT-5 Nano model (or any model name provided).
+
+    Uses openai==2.9.0 style:
+    client = OpenAI()
+    client.chat.completions.create(...)
+    """
+    completion = _client.chat.completions.create(
+        model="gpt-5-nano",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        # temperature=temperature,
+        # max_completion_tokens=max_tokens,
+    )
+
+    content: Optional[str] = completion.choices[0].message.content
+    # print("GPT-5 Nano is Called")
+    return (content or "").strip()
+```
+
+'backend/app/rag/qdrant_client.py'
+```
+from typing import List, Dict, Any, Optional
+
+import numpy as np
+import torch
+from sentence_transformers import SentenceTransformer, CrossEncoder
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import QueryResponse
+from qdrant_client.http import models as qmodels
+
+from ..config import get_settings
+
+settings = get_settings()
+
+# Device selection
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Load embedding model (BGE)
+_embed_model = SentenceTransformer(settings.embed_model_name, device=device)
+
+# Load reranker model (BGE reranker)
+_reranker = CrossEncoder(
+    settings.reranker_model_name,
+    device=device,
+    max_length=512,
+    trust_remote_code=True,
+)
+
+# Qdrant client
+_qdrant_client = QdrantClient(url=settings.qdrant_url)
+_collection_name = settings.qdrant_collection
+
+
+def embed_texts(texts: List[str], batch_size: int = 32, is_query: bool = False) -> np.ndarray:
+    if is_query:
+        prefixed = [f"query: {t}" for t in texts]
+    else:
+        prefixed = [f"passage: {t}" for t in texts]
+
+    embeddings = _embed_model.encode(
+        prefixed,
+        batch_size=batch_size,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    return embeddings
+
+
+def embed_query(query: str) -> np.ndarray:
+    return embed_texts([query], batch_size=1, is_query=True)[0]
+
+
+def search_qdrant(
+    query: str,
+    top_k: int = 20,
+) -> List[Dict[str, Any]]:
+    query_vector = embed_query(query)
+
+    response: QueryResponse = _qdrant_client.query_points(
+        collection_name=_collection_name,
+        query=query_vector.tolist(),
+        limit=top_k,
+        with_payload=True,
+    )
+
+    output: List[Dict[str, Any]] = []
+    for p in response.points:
+        output.append(
+            {
+                "id": p.id,
+                "score": p.score,
+                "payload": p.payload,
+            }
+        )
+    return output
+
+
+def rerank_with_bge_reranker(
+    query: str,
+    retrieved_results: List[Dict[str, Any]],
+    top_k: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    if not retrieved_results:
+        return []
+
+    texts = [r["payload"]["text"] for r in retrieved_results]
+    pairs = [(query, t) for t in texts]
+
+    scores = _reranker.predict(pairs)
+
+    for r, s in zip(retrieved_results, scores):
+        r["rerank_score"] = float(s)
+
+    reranked = sorted(retrieved_results, key=lambda x: x["rerank_score"], reverse=True)
+
+    if top_k is not None:
+        reranked = reranked[:top_k]
+
+    return reranked
+
+
+def retrieve_relevant_chunks(
+    query: str,
+    top_k: int = 5,
+    use_reranker: bool = True,
+) -> List[Dict[str, Any]]:
+    dense_results = search_qdrant(query, top_k=top_k)
+    if not use_reranker:
+        return dense_results
+    return rerank_with_bge_reranker(query, dense_results, top_k=top_k)
+```
+
+'backend/app/repositories/metrics_repo.py'
+```
+from typing import List, Dict, Any, Optional
+import re  # NEW
+
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+from ..db import get_engine
+
+
+def _rows_to_dicts(result) -> List[Dict[str, Any]]:
+    # SQLAlchemy 2.x friendly: use .mappings()
+    return [dict(row) for row in result.mappings().all()]
+
+
+def validate_sql(sql: str) -> str:
+    """
+    Very simple SQL safety: enforce SELECT and prevent semicolons / dangerous keywords.
+    """
+    cleaned = sql.strip().rstrip(";")
+    lowered = cleaned.lower()
+
+    # if not lowered.startswith("select"):
+    #     raise ValueError("Only SELECT statements are allowed.")
+
+    dangerous = [
+        "insert ",
+        "update ",
+        "delete ",
+        "drop ",
+        "create ",
+        "alter ",
+        "truncate ",
+    ]
+    if any(word in lowered for word in dangerous):
+        raise ValueError("SQL contains potentially dangerous keywords.")
+
+    return cleaned
+
+
+def run_sql_query(
+    sql: str,
+    engine: Optional[Engine] = None,
+    default_limit: int = 200,
+) -> List[Dict[str, Any]]:
+    engine = engine or get_engine()
+    safe_sql = validate_sql(sql)
+
+    with engine.connect() as conn:
+        result = conn.execute(text(safe_sql))
+        return _rows_to_dicts(result)
+```
+
+
+'frontend/app.py'
+```
+# frontend/streamlit_app.py
+
+import os
+from typing import Any, Dict, List, Optional
+
+import requests
+import streamlit as st
+
+
+# --------- Config helpers --------- #
+
+def get_default_backend_url() -> str:
+    env_url = os.getenv("FRAUD_API_BASE_URL", "http://localhost:8000")
+    return env_url.rstrip("/")
+
+
+def get_backend_url() -> str:
+    # Backed by Streamlit session_state but with env-based default
+    if "backend_url" not in st.session_state:
+        st.session_state.backend_url = get_default_backend_url()
+    return st.session_state.backend_url.rstrip("/")
+
+
+# --------- Backend client --------- #
+
+def call_health(base_url: Optional[str] = None) -> Dict[str, Any]:
+    base = (base_url or get_backend_url()).rstrip("/")
+    url = f"{base}/health"
+    resp = requests.get(url, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# def call_chat(
+#     question: str,
+#     history: List[Dict[str, str]],
+#     base_url: Optional[str] = None,
+# ) -> Dict[str, Any]:
+#     """
+#     history: list of {"role": "user"|"assistant", "content": "..."}.
+#     """
+#     base = (base_url or get_backend_url()).rstrip("/")
+#     url = f"{base}/chat"
+
+#     payload: Dict[str, Any] = {
+#         "question": question,
+#         "history": history,
+#     }
+
+#     resp = requests.post(url, json=payload, timeout=30)
+#     resp.raise_for_status()
+#     return resp.json()
+
+def call_chat(
+    question: str,
+    history: List[Dict[str, str]],
+    base_url: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    history: list of {"role": "user"|"assistant", "content": "..."}.
+    timeout_s: HTTP timeout in seconds for the /chat request.
+    """
+    base = (base_url or get_backend_url()).rstrip("/")
+    url = f"{base}/chat"
+
+    payload: Dict[str, Any] = {
+        "question": question,
+        "history": history,
+    }
+
+    # # default to a more realistic timeout for multiple LLM + DB calls
+    # if timeout_s is None:
+    #     timeout_s = 120.0  # 2 minutes
+
+    resp = requests.post(url, json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# --------- UI helpers --------- #
+
+def init_session_state() -> None:
+    if "messages" not in st.session_state:
+        # Each message: {"role": "user"/"assistant", "content": "...", ...meta}
+        st.session_state.messages: List[Dict[str, Any]] = []
+
+    if "last_health" not in st.session_state:
+        st.session_state.last_health = None
+
+
+def build_history_for_backend(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, str]]:
+    """
+    Map our rich messages down to the {role, content} list expected by the backend.
+    We intentionally ignore metadata (answer_type, quality, etc.).
+    """
+    history: List[Dict[str, str]] = []
+    for m in messages:
+        role = m.get("role")
+        content = m.get("content")
+        if role in ("user", "assistant") and isinstance(content, str):
+            history.append({"role": role, "content": content})
+    return history
+
+
+def render_sources(sources: Optional[List[Dict[str, Any]]]) -> None:
+    if not sources:
+        return
+
+    for src in sources:
+        src_type = src.get("type")
+        if src_type == "sql_result":
+            rows_preview = src.get("rows_preview") or []
+            with st.expander("Preview of Queried Data"):
+                # st.write(
+                #     "This is a preview of the rows returned by the SQL query used for this answer."
+                # )
+                st.json(rows_preview)
+        elif src_type == "document_chunks":
+            chunks = src.get("chunks") or []
+            with st.expander("Preview of Retrieved Document"):
+                for i, c in enumerate(chunks, start=1):
+                    section = c.get("section") or "-"
+                    subsection = c.get("subsection") or "-"
+                    snippet = c.get("snippet") or ""
+                    rerank_score = c.get("rerank_score", None)
+
+                    st.markdown(f"**Chunk {i}**")
+                    st.markdown(f"**Section:** {section}")
+                    if subsection and subsection != "-":
+                        st.markdown(f"_Subsection_: {subsection}")
+                    if rerank_score is not None:
+                        try:
+                            st.caption(f"Rerank score: {float(rerank_score):.3f}")
+                        except Exception:
+                            st.caption(f"Rerank score: {rerank_score}")
+                    st.write(snippet)
+                    st.markdown("---")
+
+
+def render_assistant_message(msg: Dict[str, Any]) -> None:
+    content = msg.get("content", "")
+    answer_type = msg.get("answer_type", "unknown")
+    quality_score = msg.get("quality_score", None)
+    sql = msg.get("sql")
+    sources = msg.get("sources")
+
+    st.markdown(content)
+
+    # Meta information
+    meta_parts: List[str] = []
+    meta_parts.append(f"Source: `{answer_type}`")
+    if quality_score is not None:
+        try:
+            meta_parts.append(f"LLM-as-Judge Score: {float(quality_score):.3f}")
+        except Exception:
+            meta_parts.append(f"LLM-as-Judge Score: {quality_score}")
+    # if sql and answer_type == "data":
+    #     meta_parts.append("SQL-backed")
+
+    if meta_parts:
+        st.caption(" • ".join(meta_parts))
+
+    # Show SQL if available
+    if sql:
+        with st.expander("SQL Query"):
+            st.code(sql, language="sql")
+
+    # Show sources if available
+    render_sources(sources)
+
+
+def sidebar_layout() -> None:
+    st.sidebar.header("Backend")
+
+    backend_url = get_backend_url()
+    new_backend_url = st.sidebar.text_input(
+        "Backend URL:",
+        value=backend_url,
+        help="FastAPI URL (e.g. http://localhost:8000)",
+    )
+    st.session_state.backend_url = new_backend_url.rstrip("/")
+
+    # Health check
+    if st.sidebar.button("Check Health"):
+        try:
+            health = call_health()
+            st.session_state.last_health = health
+        except Exception as e:
+            st.sidebar.error(f"Health check failed: {e}")
+            st.session_state.last_health = None
+
+    health = st.session_state.last_health
+    if health is not None:
+        status = health.get("status", "unknown")
+        db_ok = health.get("db_ok", False)
+        qdrant_ok = health.get("qdrant_ok", False)
+        model = health.get("model", "unknown")
+
+        # st.sidebar.subheader("Last health check")
+        st.sidebar.markdown("---")
+        st.sidebar.write(f"Status: `{status}`")
+        st.sidebar.write(f"PostgreSQL Relational Database: `{db_ok}`")
+        st.sidebar.write(f"Qdrant Vector Database: `{qdrant_ok}`")
+        st.sidebar.write(f"LLM Model: `{model}`")
+
+    # if st.sidebar.button("Clear Conversation"):
+    #     st.session_state.messages = []
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title="Fraud Q&A Chatbot",
+        page_icon="💳",
+        layout="centered",
+    )
+
+    init_session_state()
+    sidebar_layout()
+
+    st.title("Fraud Q&A Chatbot")
+    st.write(
+        """
+        Ask me any questions about 
+        [Credit Card Transactions Fraud Detection Dataset](https://www.kaggle.com/datasets/kartik2112/fraud-detection/data?select=fraud%20dataset)
+        or [Understanding Credit Card Frauds by TATA Consultancy](https://popcenter.asu.edu/sites/g/files/litvpz3631/files/problems/credit_card_fraud/PDFs/Bhatla.pdf).
+        I'm happy to help! 😄
+        """
+    )
+    
+    if st.button("Clear Conversation"):
+        st.session_state.messages = []
+
+    # Render existing chat history
+    for msg in st.session_state.messages:
+        role = msg.get("role", "assistant")
+        content = msg.get("content", "")
+
+        if role == "user":
+            with st.chat_message("user"):
+                st.markdown(content)
+        else:
+            with st.chat_message("assistant"):
+                render_assistant_message(msg)
+
+    # Chat input
+    user_input = st.chat_input("Type your question here...")
+
+    if user_input:
+        # 1. Append user message to local history for display
+        user_msg = {"role": "user", "content": user_input}
+        st.session_state.messages.append(user_msg)
+
+        # Display it immediately
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # 2. Build history for backend (exclude the current assistant reply)
+        #    We send only messages BEFORE this last user turn
+        history_for_backend = build_history_for_backend(
+            st.session_state.messages[:-1]
+        )
+
+        # 3. Call backend /chat
+        try:
+            response = call_chat(
+                question=user_input,
+                history=history_for_backend,
+            )
+            answer = response.get("answer", "")
+            answer_type = response.get("answer_type", "unknown")
+            quality_score = response.get("quality_score", 0.0)
+            sql = response.get("sql")
+            sources = response.get("sources")
+
+            assistant_msg: Dict[str, Any] = {
+                "role": "assistant",
+                "content": answer,
+                "answer_type": answer_type,
+                "quality_score": quality_score,
+                "sql": sql,
+                "sources": sources,
+            }
+            st.session_state.messages.append(assistant_msg)
+
+            # Render assistant message
+            with st.chat_message("assistant"):
+                render_assistant_message(assistant_msg)
+
+        except requests.HTTPError as http_err:
+            error_msg = f"Backend HTTP error: {http_err}"
+            st.error(error_msg)
+            # Append an error-style assistant message for consistency
+            assistant_msg = {
+                "role": "assistant",
+                "content": error_msg,
+                "answer_type": "error",
+                "quality_score": 0.0,
+                "sql": None,
+                "sources": None,
+            }
+            st.session_state.messages.append(assistant_msg)
+        except Exception as e:
+            error_msg = f"Backend request failed: {e}"
+            st.error(error_msg)
+            assistant_msg = {
+                "role": "assistant",
+                "content": error_msg,
+                "answer_type": "error",
+                "quality_score": 0.0,
+                "sql": None,
+                "sources": None,
+            }
+            st.session_state.messages.append(assistant_msg)
+
+
+if __name__ == "__main__":
+    main()
+```

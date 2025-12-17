@@ -1,0 +1,1084 @@
+Great. Now that you understand the context of the entire 'Challenge Test', I want to explain a little bit about the solution. At high level, the solution is composed of 4 components: 'Data Processing and PostgreSQL Relational Database for Credit Card Transaction Dataset', 'Data Processing and Qdrant Vector Database for Credit Card Fraud Document', 'FastAPI Backend Server', and 'Streamlit Frontend UI'. In this chat, I want you to focus on: 'Data Processing and PostgreSQL Relational Database for Credit Card Transaction Dataset'.
+
+Therefore, first I would like you to see the solution structure in 'Structure'. Then, thoroughly read and understand my entire solution for 'Data Processing and PostgreSQL Relational Database for Credit Card Transaction Dataset' in 'Code'.
+
+
+
+
+'Structure':
+```
+mekari-qac
+│
+├── data/                                     # Dataset and data processing
+│   ├── fraudData/
+│   │   ├── fraudTrain.csv                    # Training split of credit card transaction dataset
+│   │   ├── fraudTest.csv                     # Test split of credit card transaction dataset
+│   │   ├── data_processing_fraudData.ipynb   # Data processing notebook for credit card transaction dataset
+│   │   ├── fraudData_snapshot.dump           # DB snapshot
+│   │   └── requirements.txt
+│   │
+│   └── Understanding Credit Card Frauds/
+│       ├── Bhatla_Description.docx                                 # Credit card fraud document
+│       ├── data_processing_Understanding Credit Card Frauds.ipynb  # Data processing notebook for credit card fraud document
+│       ├── Bhatla_chunks.json                                      # Cleaned and segmented text chunks
+│       ├── Bhatla_embeddings.npy                                   # Precomputed dense embeddings
+│       └── requirements.txt
+│
+├── backend/                                  # FastAPI backend
+│   ├── app/
+│   │   ├── main.py                           # REST API: /health, /chat
+│   │   ├── config.py                         # Environment variables + global configuration
+│   │   ├── db.py                             # PostgreSQL engine creation + connection handling
+│   │   ├── schemas.py                        # Pydantic request/response models
+│   │   │
+│   │   ├── agent/
+│   │   │   ├── state.py                      # Central AgentState + shared memory fields
+│   │   │   ├── graph.py                      # Routing graph: data, document, fallback, scoring
+│   │   │   ├── router.py                     # LLM question router: data vs document vs none
+│   │   │   ├── data_nodes.py                 # SQL generator, SQL executor, and data explanation nodes
+│   │   │   ├── doc_nodes.py                  # Qdrant retrieval + RAG answer generator
+│   │   │   └── scoring_node.py               # Quality-scoring node for evaluating LLM answers
+│   │   │
+│   │   ├── llm/
+│   │   │   └── client.py                     # GPT-5-Nano/Mini wrappers for chat/completions
+│   │   │
+│   │   ├── rag/
+│   │   │   └── qdrant_client.py              # Embedding, retrieval, reranking + Qdrant connection
+│   │   │
+│   │   └── repositories/
+│   │       └── metrics_repo.py               # SQL execution helper for querying analytics tables/views
+│   │
+│   └── requirements.txt
+│
+├── frontend/                                 # Streamlit frontend
+│   ├── app.py                                # Streamlit interface: health check, chat UI
+│   └── requirements.txt
+│
+├── scripts/                                  # Initialization scripts
+│   ├── init_postgresql.py                    # Script to initialize PostgreSQL
+│   └── init_qdrant.py                        # Script to initialize Qdrant
+│
+├── assets/
+│   ├── q&a_chatbot_fastapi_demo.mp4          # Demo video for FastAPI Backend Server
+│   └── q&a_chatbot_streamlit_demo.mp4        # Demo video for Streamlit Frontend UI
+│
+├── .env
+└── requirements.txt
+```
+
+
+
+
+'Code':
+
+'data/fraudData/fraudTrain.csv'
+```
+df = pd.read_csv("fraudTrain.csv")
+print(df)
+Unnamed: 0 trans_date_trans_time               cc_num  \
+0                 0   2019-01-01 00:00:18     2703186189652095   
+1                 1   2019-01-01 00:00:44         630423337322   
+2                 2   2019-01-01 00:00:51       38859492057661   
+3                 3   2019-01-01 00:01:16     3534093764340240   
+4                 4   2019-01-01 00:03:06      375534208663984   
+...             ...                   ...                  ...   
+1296670     1296670   2020-06-21 12:12:08       30263540414123   
+1296671     1296671   2020-06-21 12:12:19     6011149206456997   
+1296672     1296672   2020-06-21 12:12:32     3514865930894695   
+1296673     1296673   2020-06-21 12:13:36     2720012583106919   
+1296674     1296674   2020-06-21 12:13:37  4292902571056973207   
+
+                                    merchant       category     amt  \
+0                 fraud_Rippin, Kub and Mann       misc_net    4.97   
+1            fraud_Heller, Gutmann and Zieme    grocery_pos  107.23   
+2                       fraud_Lind-Buckridge  entertainment  220.11   
+3         fraud_Kutch, Hermiston and Farrell  gas_transport   45.00   
+4                        fraud_Keeling-Crist       misc_pos   41.96   
+...                                      ...            ...     ...   
+1296670                    fraud_Reichel Inc  entertainment   15.56   
+1296671             fraud_Abernathy and Sons    food_dining   51.70   
+1296672                 fraud_Stiedemann Ltd    food_dining  105.93   
+1296673  fraud_Reinger, Weissnat and Strosin    food_dining   74.90   
+1296674  fraud_Langosh, Wintheiser and Hyatt    food_dining    4.30   
+
+               first       last gender                         street  ...  \
+0           Jennifer      Banks      F                 561 Perry Cove  ...   
+1          Stephanie       Gill      F   43039 Riley Greens Suite 393  ...   
+2             Edward    Sanchez      M       594 White Dale Suite 530  ...   
+3             Jeremy      White      M    9443 Cynthia Court Apt. 038  ...   
+4              Tyler     Garcia      M               408 Bradley Rest  ...   
+...              ...        ...    ...                            ...  ...   
+1296670         Erik  Patterson      M       162 Jessica Row Apt. 072  ...   
+1296671      Jeffrey      White      M  8617 Holmes Terrace Suite 651  ...   
+1296672  Christopher  Castaneda      M     1632 Cohen Drive Suite 639  ...   
+1296673       Joseph     Murray      M           42933 Ryan Underpass  ...   
+1296674      Jeffrey      Smith      M           135 Joseph Mountains  ...   
+
+             lat      long  city_pop                                job  \
+0        36.0788  -81.1781      3495          Psychologist, counselling   
+1        48.8878 -118.2105       149  Special educational needs teacher   
+2        42.1808 -112.2620      4154        Nature conservation officer   
+3        46.2306 -112.1138      1939                    Patent attorney   
+4        38.4207  -79.4629        99     Dance movement psychotherapist   
+...          ...       ...       ...                                ...   
+1296670  37.7175 -112.4777       258                       Geoscientist   
+1296671  39.2667  -77.5101       100   Production assistant, television   
+1296672  32.9396 -105.8189       899                    Naval architect   
+1296673  43.3526 -102.5411      1126              Volunteer coordinator   
+1296674  45.8433 -113.8748       218           Therapist, horticultural   
+
+                dob                         trans_num   unix_time  merch_lat  \
+0        1988-03-09  0b242abb623afc578575680df30655b9  1325376018  36.011293   
+1        1978-06-21  1f76529f8574734946361c461b024d99  1325376044  49.159047   
+2        1962-01-19  a1a22d70485983eac12b5b88dad1cf95  1325376051  43.150704   
+3        1967-01-12  6b849c168bdad6f867558c3793159a81  1325376076  47.034331   
+4        1986-03-28  a41d7549acf90789359a9aa5346dcb46  1325376186  38.674999   
+...             ...                               ...         ...        ...   
+1296670  1961-11-24  440b587732da4dc1a6395aba5fb41669  1371816728  36.841266   
+1296671  1979-12-11  278000d2e0d2277d1de2f890067dcc0a  1371816739  38.906881   
+1296672  1967-08-30  483f52fe67fabef353d552c1e662974c  1371816752  33.619513   
+1296673  1980-08-18  d667cdcbadaaed3da3f4020e83591c83  1371816816  42.788940   
+1296674  1995-08-16  8f7c8e4ab7f25875d753b422917c98c9  1371816817  46.565983   
+
+         merch_long  is_fraud  
+0        -82.048315         0  
+1       -118.186462         0  
+2       -112.154481         0  
+3       -112.561071         0  
+4        -78.632459         0  
+...             ...       ...  
+1296670 -111.690765         0  
+1296671  -78.246528         0  
+1296672 -105.130529         0  
+1296673 -103.241160         0  
+1296674 -114.186110         0  
+
+[1296675 rows x 23 columns]
+
+
+display(df.info())
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 1296675 entries, 0 to 1296674
+Data columns (total 23 columns):
+ #   Column                 Non-Null Count    Dtype  
+---  ------                 --------------    -----  
+ 0   Unnamed: 0             1296675 non-null  int64  
+ 1   trans_date_trans_time  1296675 non-null  object 
+ 2   cc_num                 1296675 non-null  int64  
+ 3   merchant               1296675 non-null  object 
+ 4   category               1296675 non-null  object 
+ 5   amt                    1296675 non-null  float64
+ 6   first                  1296675 non-null  object 
+ 7   last                   1296675 non-null  object 
+ 8   gender                 1296675 non-null  object 
+ 9   street                 1296675 non-null  object 
+ 10  city                   1296675 non-null  object 
+ 11  state                  1296675 non-null  object 
+ 12  zip                    1296675 non-null  int64  
+ 13  lat                    1296675 non-null  float64
+ 14  long                   1296675 non-null  float64
+ 15  city_pop               1296675 non-null  int64  
+ 16  job                    1296675 non-null  object 
+ 17  dob                    1296675 non-null  object 
+ 18  trans_num              1296675 non-null  object 
+ 19  unix_time              1296675 non-null  int64  
+ 20  merch_lat              1296675 non-null  float64
+ 21  merch_long             1296675 non-null  float64
+ 22  is_fraud               1296675 non-null  int64  
+dtypes: float64(5), int64(6), object(12)
+memory usage: 227.5+ MB
+```
+
+'data/fraudData/fraudTest.csv'
+```
+df = pd.read_csv("fraudTest.csv")
+print(df)
+Unnamed: 0 trans_date_trans_time            cc_num  \
+0                0   2020-06-21 12:14:25  2291163933867244   
+1                1   2020-06-21 12:14:33  3573030041201292   
+2                2   2020-06-21 12:14:53  3598215285024754   
+3                3   2020-06-21 12:15:15  3591919803438423   
+4                4   2020-06-21 12:15:17  3526826139003047   
+...            ...                   ...               ...   
+555714      555714   2020-12-31 23:59:07    30560609640617   
+555715      555715   2020-12-31 23:59:09  3556613125071656   
+555716      555716   2020-12-31 23:59:15  6011724471098086   
+555717      555717   2020-12-31 23:59:24     4079773899158   
+555718      555718   2020-12-31 23:59:34  4170689372027579   
+
+                                    merchant        category     amt    first  \
+0                      fraud_Kirlin and Sons   personal_care    2.86     Jeff   
+1                       fraud_Sporer-Keebler   personal_care   29.84   Joanne   
+2       fraud_Swaniawski, Nitzsche and Welch  health_fitness   41.28   Ashley   
+3                          fraud_Haley Group        misc_pos   60.05    Brian   
+4                      fraud_Johnston-Casper          travel    3.19   Nathan   
+...                                      ...             ...     ...      ...   
+555714                 fraud_Reilly and Sons  health_fitness   43.77  Michael   
+555715                  fraud_Hoppe-Parisian       kids_pets  111.84     Jose   
+555716                       fraud_Rau-Robel       kids_pets   86.88      Ann   
+555717                 fraud_Breitenberg LLC          travel    7.99     Eric   
+555718                     fraud_Dare-Marvin   entertainment   38.13   Samuel   
+
+            last gender                       street  ...      lat      long  \
+0        Elliott      M            351 Darlene Green  ...  33.9659  -80.9355   
+1       Williams      F             3638 Marsh Union  ...  40.3207 -110.4360   
+2          Lopez      F         9333 Valentine Point  ...  40.6729  -73.5365   
+3       Williams      M  32941 Krystal Mill Apt. 552  ...  28.5697  -80.8191   
+4         Massey      M     5783 Evan Roads Apt. 465  ...  44.2529  -85.0170   
+...          ...    ...                          ...  ...      ...       ...   
+555714     Olson      M          558 Michael Estates  ...  40.4931  -91.8912   
+555715   Vasquez      M          572 Davis Mountains  ...  29.0393  -95.4401   
+555716    Lawson      F   144 Evans Islands Apt. 683  ...  46.1966 -118.9017   
+555717   Preston      M   7020 Doyle Stream Apt. 951  ...  44.6255 -116.4493   
+555718      Frey      M     830 Myers Plaza Apt. 384  ...  35.6665  -97.4798   
+
+        city_pop                     job         dob  \
+0         333497     Mechanical engineer  1968-03-19   
+1            302  Sales professional, IT  1990-01-17   
+2          34496       Librarian, public  1970-10-21   
+3          54767            Set designer  1987-07-25   
+4           1126      Furniture designer  1955-07-06   
+...          ...                     ...         ...   
+555714       519            Town planner  1966-02-13   
+555715     28739          Futures trader  1999-12-27   
+555716      3684                Musician  1981-11-29   
+555717       129            Cartographer  1965-12-15   
+555718    116001             Media buyer  1993-05-10   
+
+                               trans_num   unix_time  merch_lat  merch_long  \
+0       2da90c7d74bd46a0caf3777415b3ebd3  1371816865  33.986391  -81.200714   
+1       324cc204407e99f51b0d6ca0055005e7  1371816873  39.450498 -109.960431   
+2       c81755dbbbea9d5c77f094348a7579be  1371816893  40.495810  -74.196111   
+3       2159175b9efe66dc301f149d3d5abf8c  1371816915  28.812398  -80.883061   
+4       57ff021bd3f328f8738bb535c302a31b  1371816917  44.959148  -85.884734   
+...                                  ...         ...        ...         ...   
+555714  9b1f753c79894c9f4b71f04581835ada  1388534347  39.946837  -91.333331   
+555715  2090647dac2c89a1d86c514c427f5b91  1388534349  29.661049  -96.186633   
+555716  6c5b7c8add471975aa0fec023b2e8408  1388534355  46.658340 -119.715054   
+555717  14392d723bb7737606b2700ac791b7aa  1388534364  44.470525 -117.080888   
+555718  1765bb45b3aa3224b4cdcb6e7a96cee3  1388534374  36.210097  -97.036372   
+
+        is_fraud  
+0              0  
+1              0  
+2              0  
+3              0  
+4              0  
+...          ...  
+555714         0  
+555715         0  
+555716         0  
+555717         0  
+555718         0  
+
+[555719 rows x 23 columns]
+
+
+display(df.info())
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 555719 entries, 0 to 555718
+Data columns (total 23 columns):
+ #   Column                 Non-Null Count   Dtype  
+---  ------                 --------------   -----  
+ 0   Unnamed: 0             555719 non-null  int64  
+ 1   trans_date_trans_time  555719 non-null  object 
+ 2   cc_num                 555719 non-null  int64  
+ 3   merchant               555719 non-null  object 
+ 4   category               555719 non-null  object 
+ 5   amt                    555719 non-null  float64
+ 6   first                  555719 non-null  object 
+ 7   last                   555719 non-null  object 
+ 8   gender                 555719 non-null  object 
+ 9   street                 555719 non-null  object 
+ 10  city                   555719 non-null  object 
+ 11  state                  555719 non-null  object 
+ 12  zip                    555719 non-null  int64  
+ 13  lat                    555719 non-null  float64
+ 14  long                   555719 non-null  float64
+ 15  city_pop               555719 non-null  int64  
+ 16  job                    555719 non-null  object 
+ 17  dob                    555719 non-null  object 
+ 18  trans_num              555719 non-null  object 
+ 19  unix_time              555719 non-null  int64  
+ 20  merch_lat              555719 non-null  float64
+ 21  merch_long             555719 non-null  float64
+ 22  is_fraud               555719 non-null  int64  
+dtypes: float64(5), int64(6), object(12)
+memory usage: 97.5+ MB
+```
+
+'data/fraudData/data_processing_fraudData.ipynb'
+```
+#!/usr/bin/env python
+# coding: utf-8
+
+# ## Indexing
+
+# ### Import
+
+# In[9]:
+
+
+import numpy as np
+import pandas as pd
+pd.set_option("display.max_columns", None)
+
+import matplotlib.pyplot as plt
+
+from sqlalchemy import create_engine, text
+
+
+# ### Data Pre-Processing
+
+# In[66]:
+
+
+train_path = "fraudTrain.csv"
+test_path  = "fraudTest.csv"
+
+train = pd.read_csv(train_path)
+test  = pd.read_csv(test_path)
+
+
+# In[67]:
+
+
+train["split"] = "train"
+test["split"]  = "test"
+
+df = pd.concat([train, test], ignore_index=True)
+
+
+# In[68]:
+
+
+print(df)
+
+
+# #### Data Cleaning
+
+# In[69]:
+
+
+if "Unnamed: 0" in df.columns:
+    df = df.drop(columns=["Unnamed: 0"])
+
+
+# #### Data Normalization & Data Parsing
+
+# In[70]:
+
+
+# Parse timestamps and dates
+df["trans_date_trans_time"] = pd.to_datetime(df["trans_date_trans_time"])
+df["dob"] = pd.to_datetime(df["dob"])
+
+# Treat cc_num and zip as identifiers: convert to string
+df["cc_num"] = df["cc_num"].astype(str)
+df["zip"] = df["zip"].astype(str)
+
+
+# #### Feature Creation: Time-Based Features
+
+# In[71]:
+
+
+# Transaction date and related features
+df["trans_date"] = df["trans_date_trans_time"].dt.date
+df["year"]       = df["trans_date_trans_time"].dt.year
+df["month"]      = df["trans_date_trans_time"].dt.month
+df["year_month"] = df["trans_date_trans_time"].dt.to_period("M").astype(str)
+df["day_of_week"] = df["trans_date_trans_time"].dt.day_name()
+df["hour"]        = df["trans_date_trans_time"].dt.hour
+df["is_weekend"]  = df["day_of_week"].isin(["Saturday", "Sunday"])
+
+
+# #### Feature Creation: Age
+
+# In[72]:
+
+
+age_days = (df["trans_date_trans_time"] - df["dob"]).dt.days
+df["age_at_txn_years"] = age_days / 365.25
+
+
+# #### Feature Creation: Haversine Distance
+
+# In[73]:
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0  # km
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2)
+    lon2 = np.radians(lon2)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
+    return R * c
+
+
+# In[74]:
+
+
+df["cust_merch_distance_km"] = haversine_km(df["lat"], df["long"],
+                                            df["merch_lat"], df["merch_long"])
+
+
+# #### Data Checking
+
+# In[75]:
+
+
+# Check for any missing values
+df.isna().sum()
+
+
+# ### Database: PostgreSQL
+
+# In[ ]:
+
+
+import os
+import subprocess
+
+if subprocess.run(["docker", "start", "postgresql"]).returncode != 0:
+    subprocess.run([
+        "docker", "run",
+        "--name", "postgresql",
+        "-e", "POSTGRES_USER=user",
+        "-e", "POSTGRES_PASSWORD=password",
+        "-e", "POSTGRES_DB=database",
+        "-p", "5432:5432",
+        "-d", "postgres:16"
+    ])
+
+
+# In[77]:
+
+
+DB_USER = "user"
+DB_PASS = "password"
+DB_HOST = "localhost"
+DB_PORT = "5432"
+DB_NAME = "database"
+
+DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+
+# In[78]:
+
+
+engine = create_engine(DATABASE_URL, echo=False, future=True)
+
+
+# In[79]:
+
+
+with engine.connect() as conn:
+    result = conn.execute(text("SELECT version();"))
+    print(result.scalar())
+
+
+# #### Star Schema Creation
+
+# ##### Star Schema Creation: Customer Dimension
+
+# In[80]:
+
+
+# factorize returns consistent integer codes for each unique cc_num
+df["customer_id"], customer_unique = pd.factorize(df["cc_num"])
+df["customer_id"] = df["customer_id"] + 1  # make it 1-based instead of 0-based
+
+
+# In[81]:
+
+
+customer_cols = [
+    "customer_id",
+    "cc_num", "first", "last", "gender",
+    "street", "city", "state", "zip",
+    "lat", "long", "city_pop", "job", "dob"
+]
+
+
+# In[82]:
+
+
+dim_customer = (
+    df[customer_cols]
+    .drop_duplicates("customer_id")
+    .sort_values("customer_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Star Schema Creation: Merchant Dimension
+
+# In[83]:
+
+
+df["merchant_id"], merchant_unique = pd.factorize(df["merchant"])
+df["merchant_id"] = df["merchant_id"] + 1
+
+
+# In[84]:
+
+
+dim_merchant = (
+    df[["merchant_id", "merchant", "merch_lat", "merch_long"]]
+    .drop_duplicates("merchant_id")
+    .sort_values("merchant_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Star Schema Creation: Category Dimension
+
+# In[85]:
+
+
+df["category_id"], category_unique = pd.factorize(df["category"])
+df["category_id"] = df["category_id"] + 1
+
+
+# In[86]:
+
+
+dim_category = (
+    df[["category_id", "category"]]
+    .drop_duplicates("category_id")
+    .sort_values("category_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Star Schema Creation: Date Dimension
+
+# In[87]:
+
+
+# This uses the actual transaction date (not datetime) as the key
+df["date_id"], date_unique = pd.factorize(df["trans_date"])
+df["date_id"] = df["date_id"] + 1
+
+
+# In[88]:
+
+
+dim_date = (
+    df[[
+        "date_id",
+        "trans_date",
+        "year",
+        "month",
+        "day_of_week",
+        "is_weekend",
+        "year_month"
+    ]]
+    .copy()
+)
+
+# Extract day from trans_date
+dim_date["day"] = pd.to_datetime(dim_date["trans_date"]).dt.day
+
+dim_date = (
+    dim_date
+    .drop_duplicates("date_id")
+    .sort_values("date_id")
+    .reset_index(drop=True)
+)
+
+
+# ##### Fact Table Creation
+
+# In[89]:
+
+
+fact_transactions = df[[
+    "trans_num",
+    "customer_id",
+    "merchant_id",
+    "category_id",
+    "date_id",
+    "trans_date_trans_time",
+    "unix_time",
+    "amt",
+    "is_fraud",
+    "year",
+    "month",
+    "hour",
+    "is_weekend",
+    "cust_merch_distance_km",
+    "split"
+]].copy()
+
+# Create surrogate transaction_id
+fact_transactions.insert(0, "transaction_id", range(1, len(fact_transactions) + 1))
+
+
+# #### Star Schema Loading
+
+# In[ ]:
+
+
+schema_ddl = """
+DROP TABLE IF EXISTS fact_transactions CASCADE;
+DROP TABLE IF EXISTS dim_date CASCADE;
+DROP TABLE IF EXISTS dim_category CASCADE;
+DROP TABLE IF EXISTS dim_merchant CASCADE;
+DROP TABLE IF EXISTS dim_customer CASCADE;
+
+CREATE TABLE dim_customer (
+    customer_id      BIGINT PRIMARY KEY,
+    cc_num           TEXT UNIQUE,
+    first            TEXT,
+    last             TEXT,
+    gender           VARCHAR(1),
+    street           TEXT,
+    city             TEXT,
+    state            TEXT,
+    zip              TEXT,
+    lat              DOUBLE PRECISION,
+    long             DOUBLE PRECISION,
+    city_pop         BIGINT,
+    job              TEXT,
+    dob              DATE
+);
+
+CREATE TABLE dim_merchant (
+    merchant_id      BIGINT PRIMARY KEY,
+    merchant_name    TEXT,
+    merch_lat        DOUBLE PRECISION,
+    merch_long       DOUBLE PRECISION
+);
+
+CREATE TABLE dim_category (
+    category_id      BIGINT PRIMARY KEY,
+    category_name    TEXT UNIQUE
+);
+
+CREATE TABLE dim_date (
+    date_id       BIGINT PRIMARY KEY,
+    trans_date    DATE UNIQUE,
+    year          INT,
+    month         INT,
+    day           INT,
+    day_of_week   TEXT,
+    is_weekend    BOOLEAN,
+    year_month    TEXT
+);
+
+CREATE TABLE fact_transactions (
+    transaction_id          BIGINT PRIMARY KEY,
+    trans_num               TEXT UNIQUE,
+    customer_id             BIGINT REFERENCES dim_customer(customer_id),
+    merchant_id             BIGINT REFERENCES dim_merchant(merchant_id),
+    category_id             BIGINT REFERENCES dim_category(category_id),
+    date_id                 BIGINT REFERENCES dim_date(date_id),
+    trans_ts                TIMESTAMP,
+    unix_time               BIGINT,
+    amt                     DOUBLE PRECISION,
+    is_fraud                SMALLINT,
+    year                    INT,
+    month                   INT,
+    hour                    INT,
+    is_weekend              BOOLEAN,
+    cust_merch_distance_km  DOUBLE PRECISION,
+    split                   TEXT
+);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(schema_ddl))
+
+
+# ##### Star Schema Loading: Customer Dimension, Merchant Dimension, Category Dimension, Date Dimension
+
+# In[91]:
+
+
+dim_customer_for_db = dim_customer.rename(columns={
+    "cc_num": "cc_num",
+    "first": "first",
+    "last": "last",
+    "gender": "gender",
+    "street": "street",
+    "city": "city",
+    "state": "state",
+    "zip": "zip",
+    "lat": "lat",
+    "long": "long",
+    "city_pop": "city_pop",
+    "job": "job",
+    "dob": "dob"
+})
+
+dim_merchant_for_db = dim_merchant.rename(columns={
+    "merchant": "merchant_name"
+})
+
+dim_category_for_db = dim_category.rename(columns={
+    "category": "category_name"
+})
+
+dim_date_for_db = dim_date.rename(columns={
+    "trans_date": "trans_date"
+})
+
+
+# In[ ]:
+
+
+# Use chunksize to avoid memory issues, though these dims are small.
+dim_customer_for_db.to_sql("dim_customer", con=engine, if_exists="append", index=False, method="multi")
+dim_merchant_for_db.to_sql("dim_merchant", con=engine, if_exists="append", index=False, method="multi")
+dim_category_for_db.to_sql("dim_category", con=engine, if_exists="append", index=False, method="multi")
+dim_date_for_db.to_sql("dim_date", con=engine, if_exists="append", index=False, method="multi")
+
+
+# ##### Fact Table Loading
+
+# In[93]:
+
+
+fact_for_db = fact_transactions.rename(columns={
+    "trans_date_trans_time": "trans_ts"
+})
+
+fact_for_db.to_sql(
+    "fact_transactions",
+    con=engine,
+    if_exists="append",
+    index=False,
+    method="multi",
+    chunksize=10000
+)
+
+
+# #### Indexing and Peformance Tuning
+
+# In[ ]:
+
+
+index_sql = """
+CREATE INDEX IF NOT EXISTS idx_fact_date_id ON fact_transactions(date_id);
+CREATE INDEX IF NOT EXISTS idx_fact_merchant_id ON fact_transactions(merchant_id);
+CREATE INDEX IF NOT EXISTS idx_fact_category_id ON fact_transactions(category_id);
+CREATE INDEX IF NOT EXISTS idx_fact_is_fraud ON fact_transactions(is_fraud);
+CREATE INDEX IF NOT EXISTS idx_fact_date_fraud ON fact_transactions(date_id, is_fraud);
+CREATE INDEX IF NOT EXISTS idx_fact_merchant_fraud ON fact_transactions(merchant_id, is_fraud);
+CREATE INDEX IF NOT EXISTS idx_fact_category_fraud ON fact_transactions(category_id, is_fraud);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(index_sql))
+
+
+# #### Metric Definitions and Aggregate Tables
+
+# ##### Materialized View: Aggregate Daily Fraud
+
+# In[95]:
+
+
+agg_daily_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_daily_fraud;
+
+CREATE MATERIALIZED VIEW agg_daily_fraud AS
+SELECT
+    d.trans_date,
+    d.year,
+    d.month,
+    d.day,
+    d.day_of_week,
+    d.is_weekend,
+    d.year_month,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_date d ON f.date_id = d.date_id
+GROUP BY d.trans_date, d.year, d.month, d.day, d.day_of_week, d.is_weekend, d.year_month
+ORDER BY d.trans_date;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_daily_sql))
+
+
+# In[96]:
+
+
+idx_daily_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_daily_date ON agg_daily_fraud(trans_date);
+CREATE INDEX IF NOT EXISTS idx_agg_daily_year_month ON agg_daily_fraud(year_month);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_daily_sql))
+
+
+# ##### Materialized View: Aggregate Monthly Fraud
+
+# In[97]:
+
+
+agg_monthly_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_monthly_fraud;
+
+CREATE MATERIALIZED VIEW agg_monthly_fraud AS
+SELECT
+    d.year,
+    d.month,
+    d.year_month,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_date d ON f.date_id = d.date_id
+GROUP BY d.year, d.month, d.year_month
+ORDER BY d.year, d.month;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_monthly_sql))
+
+
+# In[98]:
+
+
+idx_monthly_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_monthly_year_month ON agg_monthly_fraud(year_month);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_monthly_sql))
+
+
+# ##### Materialized View: Aggregate Merchant Fraud
+
+# In[99]:
+
+
+agg_merchant_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_merchant_fraud;
+
+CREATE MATERIALIZED VIEW agg_merchant_fraud AS
+SELECT
+    m.merchant_id,
+    m.merchant_name,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_merchant m ON f.merchant_id = m.merchant_id
+GROUP BY m.merchant_id, m.merchant_name
+ORDER BY fraud_rate DESC;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_merchant_sql))
+
+
+# In[100]:
+
+
+idx_merchant_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_merchant_fraud_rate
+    ON agg_merchant_fraud(fraud_rate DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agg_merchant_name
+    ON agg_merchant_fraud(merchant_name);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_merchant_sql))
+
+
+# ##### Materialized View: Aggregate Category Fraud
+
+# In[101]:
+
+
+agg_category_sql = """
+DROP MATERIALIZED VIEW IF EXISTS agg_category_fraud;
+
+CREATE MATERIALIZED VIEW agg_category_fraud AS
+SELECT
+    c.category_id,
+    c.category_name,
+    COUNT(*) AS total_tx,
+    SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END) AS fraud_tx,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN 1 ELSE 0 END)::float
+        / NULLIF(COUNT(*), 0)) AS fraud_rate,
+    SUM(f.amt) AS total_amount,
+    SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END) AS fraud_amount,
+    (SUM(CASE WHEN f.is_fraud = 1 THEN f.amt ELSE 0 END)
+        / NULLIF(SUM(f.amt), 0)) AS fraud_share_by_value
+FROM fact_transactions f
+JOIN dim_category c ON f.category_id = c.category_id
+GROUP BY c.category_id, c.category_name
+ORDER BY fraud_rate DESC;
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(agg_category_sql))
+
+
+# In[102]:
+
+
+idx_category_sql = """
+CREATE INDEX IF NOT EXISTS idx_agg_category_fraud_rate
+    ON agg_category_fraud(fraud_rate DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agg_category_name
+    ON agg_category_fraud(category_name);
+"""
+
+with engine.begin() as conn:
+    conn.execute(text(idx_category_sql))
+
+
+# #### Exporting: Snapshot
+
+# In[ ]:
+
+
+import os
+import subprocess
+
+subprocess.run([
+    "docker", "exec",
+    "-e", "PGPASSWORD=password",
+    "-t",
+    "postgresql",
+    "pg_dump",
+    "-U", "user",
+    "-d", "database",
+    "-Fc",
+    "-f", "/tmp/fraudData_snapshot.dump"
+], check=True)
+
+subprocess.run([
+    "docker", "cp",
+    "postgresql:/tmp/fraudData_snapshot.dump",
+    "./fraudData_snapshot.dump"
+], check=True)
+
+
+# ### Validation
+
+# In[104]:
+
+
+with engine.connect() as conn:
+    print("Daily Fraud Head:")
+    res = conn.execute(text("SELECT * FROM agg_daily_fraud ORDER BY trans_date LIMIT 5;"))
+    for row in res:
+        print(row)
+
+    print("\nTop 5 Merchants by fraud_rate:")
+    res = conn.execute(text("""
+        SELECT merchant_name, total_tx, fraud_tx, fraud_rate
+        FROM agg_merchant_fraud
+        ORDER BY fraud_rate DESC
+        LIMIT 5;
+    """))
+    for row in res:
+        print(row)
+
+    print("\nTop 5 Categories by fraud_rate:")
+    res = conn.execute(text("""
+        SELECT category_name, total_tx, fraud_tx, fraud_rate
+        FROM agg_category_fraud
+        ORDER BY fraud_rate DESC
+        LIMIT 5;
+    """))
+    for row in res:
+        print(row)
+```
+
+'scripts/init_postgresql.py'
+```
+# scripts/init_db_from_snapshot.py
+
+import os
+import time
+import subprocess
+from dotenv import load_dotenv
+
+def main():
+    load_dotenv()
+
+    # db_host = os.getenv("DB_HOST", "localhost")
+    # db_port = os.getenv("DB_PORT", "5432")
+    # db_user = os.getenv("DB_USER", "user")
+    # db_password = os.getenv("DB_PASSWORD", "password")
+    # db_name = os.getenv("DB_NAME", "database")
+
+    snapshot_path = os.path.join("data", "fraudData", "fraudData_snapshot.dump")
+    if not os.path.exists(snapshot_path):
+        raise FileNotFoundError(
+            f"Snapshot file not found at {snapshot_path}. "
+        )
+
+    if subprocess.run(["docker", "start", "postgresql"]).returncode != 0:
+        subprocess.run([
+            "docker", "run",
+            "--name", "postgresql",
+            "-e", "POSTGRES_USER=user",
+            "-e", "POSTGRES_PASSWORD=password",
+            "-e", "POSTGRES_DB=database",
+            "-p", "5432:5432",
+            # "-v", f"{os.getcwd()}/postgresql:/var/lib/postgresql/data",
+            "-d", "postgres:16"
+        ], check=True)
+
+    time.sleep(15)
+
+    subprocess.run([
+        "docker", "cp",
+        snapshot_path,              
+        "postgresql:/tmp/fraudData_snapshot.dump"
+    ], check=True)
+
+    time.sleep(15)
+
+    subprocess.run([
+        "docker", "exec",
+        "-e", "PGPASSWORD=password",
+        "postgresql",
+        "pg_restore",
+        "-c",
+        "-U", "user",
+        "-d", "database",
+        "/tmp/fraudData_snapshot.dump"
+    ], check=True)
+    
+    print("Database restored from snapshot successfully.")
+
+if __name__ == "__main__":
+    main()
+```

@@ -8,4 +8,6 @@ data/*.docx filter=lfs diff=lfs merge=lfs -text
 
 "data/fraudData/fraudData_snapshot.dump" filter=lfs diff=lfs merge=lfs -text
 "data/Understanding Credit Card Frauds/Bhatla_chunks.json" filter=lfs diff=lfs merge=lfs -text
+"data/Understanding Credit Card Frauds/Bhatla_chunks_ex.json" filter=lfs diff=lfs merge=lfs -text
 "data/Understanding Credit Card Frauds/Bhatla_embeddings.npy" filter=lfs diff=lfs merge=lfs -text
+"data/Understanding Credit Card Frauds/Bhatla_embeddings_ex.npy" filter=lfs diff=lfs merge=lfs -text

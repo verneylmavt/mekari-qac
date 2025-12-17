@@ -16,8 +16,8 @@ def main():
     collection_name = os.getenv("QDRANT_COLLECTION", "bhatla_credit_fraud")
 
     base_dir = os.path.join("data", "Understanding Credit Card Frauds")
-    chunks_path = os.path.join(base_dir, "Bhatla_chunks.json")
-    embeddings_path = os.path.join(base_dir, "Bhatla_embeddings.npy")
+    chunks_path = os.path.join(base_dir, "Bhatla_chunks_ex.json")
+    embeddings_path = os.path.join(base_dir, "Bhatla_embeddings_ex.npy")
 
     if not os.path.exists(chunks_path):
         raise FileNotFoundError(chunks_path)

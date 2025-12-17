@@ -8,9 +8,9 @@ from sqlalchemy import text
 
 from .config import get_settings
 from .schemas import ChatRequest, ChatResponse
-from .agent.graph import run_agent
+from .agent.state_graph import run_agent
 from .db import get_engine
-from .rag.qdrant_client import _qdrant_client  # type: ignore
+from .vdb.qdrant_client import _qdrant_client  # type: ignore
 
 settings = get_settings()
 
@@ -84,7 +84,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         sources.append(
             {
                 "type": "sql_result",
-                "rows_preview": rows[:5],
+                "rows_preview": rows,
             }
         )
     elif answer_type == "document":
@@ -96,7 +96,7 @@ def chat(request: ChatRequest) -> ChatResponse:
                 {
                     "section": payload.get("section"),
                     "subsection": payload.get("subsection"),
-                    "snippet": payload["text"][:300],
+                    "snippet": payload["text"],
                     "rerank_score": c.get("rerank_score"),
                 }
             )

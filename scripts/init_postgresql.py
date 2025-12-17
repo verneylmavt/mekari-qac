@@ -47,7 +47,8 @@ def main():
         "-e", "PGPASSWORD=password",
         "postgresql",
         "pg_restore",
-        "-c",
+        "--clean",
+        "--if-exists",
         "-U", "user",
         "-d", "database",
         "/tmp/fraudData_snapshot.dump"

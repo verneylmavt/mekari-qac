@@ -1,7 +1,7 @@
 # backend/app/agent/router.py
 
 from .state import AgentState
-from ..llm.client import call_gpt5_nano, call_gpt5_mini
+from ..llm.openai_client import call_gpt5_nano, call_gpt5_mini
 
 ROUTER_SYSTEM_PROMPT = (
     "You are a router for an internal fraud-analytics assistant.\n"

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # OpenAI / GPT-5 Nano
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
-    openai_model_name: str = Field("gpt-5-nano", env="OPENAI_MODEL_NAME")
+    openai_model_name: str = Field("gpt-5-mini", env="OPENAI_MODEL_NAME")
 
     # Embedding / reranker
     embed_model_name: str = Field("BAAI/bge-base-en-v1.5", env="EMBED_MODEL_NAME")

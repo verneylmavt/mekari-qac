@@ -1,3 +1,78 @@
+Great. Now that you understand the context of the entire 'Challenge Test', I want to explain a little bit about the solution. At high level, the solution is composed of 4 components: 'Data Processing and PostgreSQL Relational Database for Credit Card Transaction Dataset', 'Data Processing and Qdrant Vector Database for Credit Card Fraud Document', 'FastAPI Backend Server', and 'Streamlit Frontend UI'. In this chat, I want you to focus on: 'Streamlit Frontend UI'.
+
+Therefore, first I would like you to see the solution structure in 'Structure'. Then, thoroughly read and understand my entire solution for 'Streamlit Frontend UI' in 'Code'.
+
+
+
+
+'Structure':
+```
+mekari-qac
+│
+├── data/                                     # Dataset and data processing
+│   ├── fraudData/
+│   │   ├── fraudTrain.csv                    # Training split of credit card transaction dataset
+│   │   ├── fraudTest.csv                     # Test split of credit card transaction dataset
+│   │   ├── data_processing_fraudData.ipynb   # Data processing notebook for credit card transaction dataset
+│   │   ├── fraudData_snapshot.dump           # DB snapshot
+│   │   └── requirements.txt
+│   │
+│   └── Understanding Credit Card Frauds/
+│       ├── Bhatla_Description.docx                                 # Credit card fraud document
+│       ├── data_processing_Understanding Credit Card Frauds.ipynb  # Data processing notebook for credit card fraud document
+│       ├── Bhatla_chunks.json                                      # Cleaned and segmented text chunks
+│       ├── Bhatla_embeddings.npy                                   # Precomputed dense embeddings
+│       └── requirements.txt
+│
+├── backend/                                  # FastAPI backend
+│   ├── app/
+│   │   ├── main.py                           # REST API: /health, /chat
+│   │   ├── config.py                         # Environment variables + global configuration
+│   │   ├── db.py                             # PostgreSQL engine creation + connection handling
+│   │   ├── schemas.py                        # Pydantic request/response models
+│   │   │
+│   │   ├── agent/
+│   │   │   ├── state.py                      # Central AgentState + shared memory fields
+│   │   │   ├── graph.py                      # Routing graph: data, document, fallback, scoring
+│   │   │   ├── router.py                     # LLM question router: data vs document vs none
+│   │   │   ├── data_nodes.py                 # SQL generator, SQL executor, and data explanation nodes
+│   │   │   ├── doc_nodes.py                  # Qdrant retrieval + RAG answer generator
+│   │   │   └── scoring_node.py               # Quality-scoring node for evaluating LLM answers
+│   │   │
+│   │   ├── llm/
+│   │   │   └── client.py                     # GPT-5-Nano/Mini wrappers for chat/completions
+│   │   │
+│   │   ├── rag/
+│   │   │   └── qdrant_client.py              # Embedding, retrieval, reranking + Qdrant connection
+│   │   │
+│   │   └── repositories/
+│   │       └── metrics_repo.py               # SQL execution helper for querying analytics tables/views
+│   │
+│   └── requirements.txt
+│
+├── frontend/                                 # Streamlit frontend
+│   ├── app.py                                # Streamlit interface: health check, chat UI
+│   └── requirements.txt
+│
+├── scripts/                                  # Initialization scripts
+│   ├── init_postgresql.py                    # Script to initialize PostgreSQL
+│   └── init_qdrant.py                        # Script to initialize Qdrant
+│
+├── assets/
+│   ├── q&a_chatbot_fastapi_demo.mp4          # Demo video for FastAPI Backend Server
+│   └── q&a_chatbot_streamlit_demo.mp4        # Demo video for Streamlit Frontend UI
+│
+├── .env
+└── requirements.txt
+```
+
+
+
+
+'Code':
+
+'frontend/app.py'
+```
 # frontend/streamlit_app.py
 
 import os
@@ -117,7 +192,7 @@ def render_sources(sources: Optional[List[Dict[str, Any]]]) -> None:
                 # st.write(
                 #     "This is a preview of the rows returned by the SQL query used for this answer."
                 # )
-                st.dataframe(rows_preview)
+                st.json(rows_preview)
         elif src_type == "document_chunks":
             chunks = src.get("chunks") or []
             with st.expander("Preview of Retrieved Document"):
@@ -265,14 +340,10 @@ def main() -> None:
 
         # 3. Call backend /chat
         try:
-            # placeholder = st.empty()
-            # with st.spinner("Thinking..."):
             response = call_chat(
                 question=user_input,
                 history=history_for_backend,
             )
-            # placeholder.empty()
-            
             answer = response.get("answer", "")
             answer_type = response.get("answer_type", "unknown")
             quality_score = response.get("quality_score", 0.0)
@@ -289,8 +360,8 @@ def main() -> None:
             }
             st.session_state.messages.append(assistant_msg)
 
+            # Render assistant message
             with st.chat_message("assistant"):
-                # Render assistant message
                 render_assistant_message(assistant_msg)
 
         except requests.HTTPError as http_err:
@@ -307,7 +378,7 @@ def main() -> None:
             }
             st.session_state.messages.append(assistant_msg)
         except Exception as e:
-            error_msg = f"Backend Request Failed: {e}"
+            error_msg = f"Backend request failed: {e}"
             st.error(error_msg)
             assistant_msg = {
                 "role": "assistant",
@@ -322,3 +393,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+```
