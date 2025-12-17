@@ -35,20 +35,20 @@ mekari-qac
 │   │   │
 │   │   ├── agent/
 │   │   │   ├── state.py                      # Central AgentState + shared memory fields
-│   │   │   ├── graph.py                      # Routing graph: data, document, fallback, scoring
-│   │   │   ├── router.py                     # LLM question router: data vs document vs none
-│   │   │   ├── data_nodes.py                 # SQL generator, SQL executor, and data explanation nodes
-│   │   │   ├── doc_nodes.py                  # Qdrant retrieval + RAG answer generator
-│   │   │   └── scoring_node.py               # Quality-scoring node for evaluating LLM answers
+│   │   │   ├── state_graph.py                # Routing graph: data, document, fallback, scoring
+│   │   │   ├── route.py                      # LLM question router: data vs document vs none
+│   │   │   ├── data_node.py                  # SQL generator, SQL executor, and data explanation nodes
+│   │   │   ├── doc_node.py                   # Qdrant retrieval + RAG answer generator
+│   │   │   └── score_node.py                 # Quality-scoring node for evaluating LLM answers
 │   │   │
 │   │   ├── llm/
-│   │   │   └── client.py                     # GPT-5-Nano/Mini wrappers for chat/completions
+│   │   │   └── openai_client.py              # GPT-5-Nano/Mini wrappers for chat/completions
 │   │   │
-│   │   ├── rag/
+│   │   ├── vdb/
 │   │   │   └── qdrant_client.py              # Embedding, retrieval, reranking + Qdrant connection
 │   │   │
-│   │   └── repositories/
-│   │       └── metrics_repo.py               # SQL execution helper for querying analytics tables/views
+│   │   └── rdb/
+│   │       └── postgresql_client.py          # SQL execution helper for querying analytics tables/views
 │   │
 │   └── requirements.txt
 │
@@ -97,13 +97,13 @@ mekari-qac
 - **FastAPI Backend Server**
 
   - **Implementation**  
-     The FastAPI backend exposes two primary endpoints: `/health `for liveness checks and `/chat` for serving Q&A responses. `backend/app/main.py` handles request routing, loads configuration via `backend/app/config.py`, manages CORS for local development, and performs connectivity checks against PostgreSQL (through a cached SQLAlchemy engine in `backend/app/db.py`) and Qdrant (through the shared client in `backend/app/rag/qdrant_client`.py). When a chat request arrives, the backend converts the conversation history into a minimal `{role, content}` form and invokes `run_agent()` from `backend/app/agent/graph.py`, later packaging the agent’s final answer, metadata, and source previews into a strongly typed `ChatResponse` defined in `backend/app/schemas.py`.
+     The FastAPI backend exposes two primary endpoints: `/health `for liveness checks and `/chat` for serving Q&A responses. `backend/app/main.py` handles request routing, loads configuration via `backend/app/config.py`, manages CORS for local development, and performs connectivity checks against PostgreSQL (through a cached SQLAlchemy engine in `backend/app/db.py`) and Qdrant (through the shared client in `backend/app/vdb/qdrant_client`.py). When a chat request arrives, the backend converts the conversation history into a minimal `{role, content}` form and invokes `run_agent()` from `backend/app/agent/state_graph.py`, later packaging the agent’s final answer, metadata, and source previews into a strongly typed `ChatResponse` defined in `backend/app/schemas.py`.
 
-    Runtime configuration and external integrations are encapsulated cleanly. `backend/app/config.py `centralizes all environment-driven settings such as DB credentials, Qdrant location, and LLM model names; `backend/app/db.py` constructs and caches the SQLAlchemy engine; and `backend/app/rag/qdrant_client.py` loads the embedding and reranker models once at startup, providing convenient helpers for query embedding, dense search, and reranking. This design keeps model loading, Qdrant access, and connection handling isolated from the core logic.
+    Runtime configuration and external integrations are encapsulated cleanly. `backend/app/config.py `centralizes all environment-driven settings such as DB credentials, Qdrant location, and LLM model names; `backend/app/db.py` constructs and caches the SQLAlchemy engine; and `backend/app/vdb/qdrant_client.py` loads the embedding and reranker models once at startup, providing convenient helpers for query embedding, dense search, and reranking. This design keeps model loading, Qdrant access, and connection handling isolated from the core logic.
 
-    The conversational intelligence is implemented as a LangGraph state machine wired in `backend/app/agent/graph.py`. It orchestrates the end-to-end flow: the router (`backend/app/agent/router.py`) classifies each question as data-focused, document-focused, or out-of-scope; the data path (`backend/app/agent/data_nodes.py`) generates SQL, executes it with `backend/app/repositories/metrics_repo.py.run_sql_query`, and summarizes the results; the document path (`backend/app/agent/doc_nodes.py`) retrieves and reranks relevant Qdrant chunks from `backend/app/rag/qdrant_client.py.run_sql_query` before generating a grounded RAG answer; and the fallback route produces a safe message for unsupported queries. All paths conclude with the `backend/app/agent/scoring_node.py`, which computes an LLM-based quality score based on the answer and its evidence.
+    The conversational intelligence is implemented as a LangGraph state machine wired in `backend/app/agent/state_graph.py`. It orchestrates the end-to-end flow: the router (`backend/app/agent/route.py`) classifies each question as data-focused, document-focused, or out-of-scope; the data path (`backend/app/agent/data_node.py`) generates SQL, executes it with `backend/app/rdb/postgresql_client.py.run_sql_query`, and summarizes the results; the document path (`backend/app/agent/doc_node.py`) retrieves and reranks relevant Qdrant chunks from `backend/app/vdb/qdrant_client.py.run_sql_query` before generating a grounded RAG answer; and the fallback route produces a safe message for unsupported queries. All paths conclude with the `backend/app/agent/score_node.py`, which computes an LLM-based quality score based on the answer and its evidence.
 
-    LLM calls and data access are abstracted behind stable interfaces. `backend/app/llm/client.py` provides thin wrappers around GPT-5 Nano and Mini, ensuring that every part of the pipeline (router, SQL generator, RAG answerer, scorer) uses consistent model invocation logic. Together, these components form a cohesive backend that retrieves the right information source, synthesizes grounded answers, scores them, and then exposes everything through a simple and predictable `/chat` API.
+    LLM calls and data access are abstracted behind stable interfaces. `backend/app/llm/openai_client.py` provides thin wrappers around GPT-5 Nano and Mini, ensuring that every part of the pipeline (router, SQL generator, RAG answerer, scorer) uses consistent model invocation logic. Together, these components form a cohesive backend that retrieves the right information source, synthesizes grounded answers, scores them, and then exposes everything through a simple and predictable `/chat` API.
 
   - **Future Improvements**
     - Batch and Asynchronous Execution: Move to async FastAPI endpoints and async database + LLM clients, enabling concurrency scaling and significantly improving throughput under parallel user queries.
