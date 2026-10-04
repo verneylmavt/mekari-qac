@@ -1,21 +1,24 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16
     container_name: postgresql
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_USER: ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?Set DB_ADMIN_PASSWORD in .env}
       POSTGRES_DB: ${DB_NAME:-database}
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
       - "./data/fraudData/postgresql:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.17.0
     container_name: qdrant
     restart: unless-stopped
     ports:
