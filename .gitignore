@@ -11,3 +11,17 @@ data/Understanding Credit Card Frauds/qdrant
 data/fraudData/postgresql
 
 ~$*
+
+.env
+.env.*
+!.env.example
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.superpowers/
+*.log
+test-results/
+output/playwright/
+.playwright-cli/
