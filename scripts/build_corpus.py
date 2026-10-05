@@ -228,7 +228,7 @@ def build(output, *, offline=False, cache_models_only=False):
     for chunk in chunks:
         chunk.update(profile_sha256=profile_hash, artifact_version=version)
     (output / "chunks.json").write_text(
-        json.dumps(chunks, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(chunks, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     manifest = {
         "schema_version": 1,
@@ -241,7 +241,7 @@ def build(output, *, offline=False, cache_models_only=False):
         },
     }
     (output / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     load_corpus(output, verify_sources=True)
     print(

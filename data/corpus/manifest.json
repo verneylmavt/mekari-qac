@@ -44,7 +44,7 @@
   "chunk_count": 146,
   "artifacts": {
     "chunks.json": {
-      "sha256": "e6b703bf77cf478fd5af8fb2391502ef173e9a703c1138d6e56e6464bbd15a88"
+      "sha256": "0240c2c682dfe23f222984d6cb3faa929802f1b94291181267c88d2647dcfa8e"
     },
     "vectors.npy": {
       "sha256": "f18301421355aba400a63850513e56f05e2b917adc3cb7f6612a3c1b93b817b6"

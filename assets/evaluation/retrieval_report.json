@@ -1,0 +1,157 @@
+{
+  "mode": "offline_real_retrieval",
+  "artifact_version": "2c3bdbc47dcd71e6",
+  "scope": "Seven documentary probes. Does not measure planner, SQL generation or live answer accuracy.",
+  "cases": 7,
+  "hit_at_8": 1.0,
+  "mean_reciprocal_rank": 0.6547619047619048,
+  "results": [
+    {
+      "id": "mechanisms",
+      "hit_at_8": true,
+      "reciprocal_rank": 0.3333333333333333,
+      "gold_terms_present": {
+        "lost": true,
+        "stolen": true,
+        "identity": true,
+        "skimming": true,
+        "counterfeit": true
+      },
+      "citations": [
+        "bhatla-p3-4de249d3",
+        "bhatla-p1-e048238b",
+        "bhatla-p5-811f9362",
+        "bhatla-p6-582cc053",
+        "bhatla-p2-343108a8",
+        "bhatla-p8-27abe9dc",
+        "bhatla-p4-7a913523",
+        "bhatla-p7-6cbefcc6"
+      ],
+      "seconds": 63.985
+    },
+    {
+      "id": "controls",
+      "hit_at_8": true,
+      "reciprocal_rank": 1.0,
+      "gold_terms_present": {
+        "detection": true,
+        "cost": true,
+        "review": true
+      },
+      "citations": [
+        "bhatla-p10-dc1f2232",
+        "bhatla-p1-e048238b",
+        "bhatla-p3-fe416650",
+        "bhatla-p12-81df3f95",
+        "bhatla-p13-310b0cd2",
+        "bhatla-p3-4de249d3",
+        "bhatla-p13-c19bf799",
+        "bhatla-p9-fb3e4ef2"
+      ],
+      "seconds": 26.25
+    },
+    {
+      "id": "outside_eea",
+      "hit_at_8": true,
+      "reciprocal_rank": 0.25,
+      "gold_terms_present": {
+        "ten": true,
+        "EEA": true
+      },
+      "citations": [
+        "eba-p19-a088c188",
+        "eba-p11-64d7f450",
+        "eba-p18-203ef39a",
+        "eba-p6-21970cad",
+        "eba-p28-d88bfafe",
+        "eba-p8-19432644",
+        "eba-p10-e31d17ee",
+        "eba-p6-6a97d32a"
+      ],
+      "seconds": 20.125
+    },
+    {
+      "id": "cross_border_value",
+      "hit_at_8": true,
+      "reciprocal_rank": 1.0,
+      "gold_terms_present": {
+        "71%": true,
+        "value": true,
+        "cross": true
+      },
+      "citations": [
+        "eba-p6-6a97d32a",
+        "eba-p27-ef124e85",
+        "eba-p28-d88bfafe",
+        "eba-p13-8325ae0f",
+        "eba-p16-6d507ee6",
+        "eba-p11-64d7f450",
+        "eba-p22-0f7cf8f5",
+        "eba-p27-72257075"
+      ],
+      "seconds": 19.078
+    },
+    {
+      "id": "cross_border_volume",
+      "hit_at_8": true,
+      "reciprocal_rank": 0.5,
+      "gold_terms_present": {
+        "68%": true,
+        "volume": true,
+        "71%": true
+      },
+      "citations": [
+        "eba-p6-6a97d32a",
+        "eba-p27-ef124e85",
+        "eba-p28-d88bfafe",
+        "eba-p16-6d507ee6",
+        "eba-p13-8325ae0f",
+        "eba-p11-0e2ac110",
+        "eba-p11-64d7f450",
+        "eba-p22-0f7cf8f5"
+      ],
+      "seconds": 22.781
+    },
+    {
+      "id": "source_conflict",
+      "hit_at_8": true,
+      "reciprocal_rank": 1.0,
+      "gold_terms_present": {
+        "0.08%": true,
+        "0.06%": true,
+        "inconsistency": true
+      },
+      "citations": [
+        "bhatla-p15-604e8e9f",
+        "bhatla-p15-ca22ede6",
+        "bhatla-p5-811f9362",
+        "bhatla-p4-7a913523",
+        "bhatla-p14-7e7b08c3",
+        "bhatla-p4-dc139fc7",
+        "bhatla-p1-e048238b",
+        "bhatla-p3-fe416650"
+      ],
+      "seconds": 21.906
+    },
+    {
+      "id": "report_limits",
+      "hit_at_8": true,
+      "reciprocal_rank": 0.5,
+      "gold_terms_present": {
+        "Liechtenstein": true,
+        "quality": true
+      },
+      "citations": [
+        "eba-p5-ead038ad",
+        "eba-p34-720a2741",
+        "eba-p29-3f9e102b",
+        "eba-p6-6a97d32a",
+        "eba-p8-a95cab11",
+        "eba-p27-ef124e85",
+        "eba-p26-3d38ab94",
+        "eba-p7-37f734d3"
+      ],
+      "seconds": 24.235
+    }
+  ]
+}

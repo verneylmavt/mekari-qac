@@ -1,0 +1,16 @@
+[
+  {"id":"monthly", "question":"How does the monthly fraud rate evolve over the whole dataset?", "route":"data", "expected":"Chronological count-based fractions from agg_monthly_fraud"},
+  {"id":"daily", "question":"What are the daily fraud rates?", "route":"data", "expected":"Chronological count-based fractions from agg_daily_fraud"},
+  {"id":"incidence", "question":"Which merchants and categories have the highest fraud incidence?", "route":"data", "expected":"Fraud counts and denominators, distinguishing incidence from rate"},
+  {"id":"mechanisms", "question":"What are the main credit card fraud mechanisms described by Bhatla?", "route":"document", "document_id":"bhatla", "pages":[4,5,6,7,8], "gold_terms":["lost", "stolen", "identity", "skimming", "counterfeit"]},
+  {"id":"controls", "question":"What makes an effective fraud detection system according to Bhatla's authors?", "route":"document", "document_id":"bhatla", "pages":[10,11,12,13,14,15,16], "gold_terms":["detection", "cost", "review"]},
+  {"id":"outside_eea", "question":"How do card fraud rates outside the EEA compare with those within the EEA?", "route":"document", "document_id":"eba", "pages":[6], "gold_terms":["ten", "EEA"]},
+  {"id":"cross_border_value", "question":"What share of card fraud value in H1 2023 was cross-border?", "route":"document", "document_id":"eba", "pages":[6,27], "gold_terms":["71%", "value", "cross"]},
+  {"id":"cross_border_volume", "question":"What share of card fraud volume in H1 2023 was cross-border, distinct from value?", "route":"document", "document_id":"eba", "pages":[27], "gold_terms":["68%", "volume", "71%"]},
+  {"id":"source_conflict", "question":"Why does Bhatla Figure 2 show 0.08% fraud losses while its text says 0.06%?", "route":"document", "document_id":"bhatla", "pages":[15], "gold_terms":["0.08%", "0.06%", "inconsistency"]},
+  {"id":"report_limits", "question":"What data quality and geographic coverage limitations does the EBA 2024 payment fraud report identify?", "route":"document", "document_id":"eba", "pages":[8,34], "gold_terms":["Liechtenstein", "quality"]},
+  {"id":"followup", "question":"And what about its value?", "route":"document", "history_context":"EBA H1 2023 cross-border card fraud volume", "expected":"Resolve value from history; 71% value, not 68% volume"},
+  {"id":"mixed", "question":"Compare our dataset's monthly fraud patterns with EBA cross-border card fraud findings.", "route":"mixed", "expected":"Both SQL and page citations; synthetic and EU/EEA scopes kept distinct"},
+  {"id":"ambiguous", "question":"What about it?", "route":"none", "expected":"Clarify when history cannot resolve the referent"},
+  {"id":"unrelated", "question":"Write a recipe for soup.", "route":"none", "expected":"Explain fraud Q&A scope without fabricated evidence"}
+]

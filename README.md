@@ -1,211 +1,195 @@
 # Mekari Associate AI Engineer Challenge Test: Q&A Chatbot
 
-This projects implements a Q&A Chatbot, which focuses on building a robust internal system capable of answering fraud-related questions using two fundamentally different sources of information: [a tabular credit-card transaction dataset](https://www.kaggle.com/datasets/kartik2112/fraud-detection/data?select=fraud%20dataset) and [a document explaining real-world fraud mechanisms](https://popcenter.asu.edu/sites/g/files/litvpz3631/files/problems/credit_card_fraud/PDFs/Bhatla.pdf). The primary challenge is to design an intelligent agent that can understand a user’s question, determine the appropriate knowledge source, extract and synthesize correct information, and deliver clear, accurate insights.
+Fraud Q&A over a synthetic credit-card transaction warehouse and two original reports: *Understanding Credit Card Frauds* (Bhatla et al.) and the EBA/ECB *2024 Report on Payment Fraud*. A Streamlit interface calls a FastAPI/LangGraph backend that selects SQL, document retrieval, or both, then answers with evidence and an explained quality score.
 
-At its core, this project is engineered as a modular pipeline that separates concerns cleanly: data processing, PostgreSQL relational database for processed credit card transaction dataset, Qdrant vector database for processed credit card fraud document, FastAPI backend server, and Streamlit frontend UI.
+The challenge prioritizes accuracy. This implementation distinguishes source populations, reporting periods, fraud counts, rates, and value shares. It asks for clarification or declines to answer when evidence does not support a response.
 
-<!-- [Click here to learn more about the project: mekari-qac/assets/Mekari - AI Engineer.pdf](https://github.com/verneylmavt/mekari-qac/blob/ec7788fa0749925197eb3379c2ed9b6e56e4d5f2/assets/Mekari%20-%20AI%20Engineer.pdf). -->
+![Offline desktop demonstration](assets/demo/offline-desktop-answer.jpg)
 
-## 📁 Project Structure
+This labelled offline fixture demonstrates the interface with sample rows, answers, and rubric values. It is not a live model evaluation. [Mobile demonstration](assets/demo/offline-mobile-answer.jpg).
 
-```
-mekari-qac
-│
-├── data/                                     # Dataset and data processing
-│   ├── fraudData/
-│   │   ├── fraudTrain.csv                    # Training split of credit card transaction dataset
-│   │   ├── fraudTest.csv                     # Test split of credit card transaction dataset
-│   │   ├── data_processing_fraudData.ipynb   # Data processing notebook for credit card transaction dataset
-│   │   ├── fraudData_snapshot.dump           # DB snapshot
-│   │   └── requirements.txt
-│   │
-│   └── Understanding Credit Card Frauds/
-│       ├── Bhatla.pdf                                              # Credit card fraud document
-│       ├── data_processing_Understanding Credit Card Frauds.ipynb  # Data processing notebook for credit card fraud document
-│       ├── Bhatla_chunks.json                                      # Cleaned and segmented text chunks
-│       ├── Bhatla_embeddings.npy                                   # Precomputed dense embeddings
-│       └── requirements.txt
-│
-├── backend/                                  # FastAPI backend
-│   ├── app/
-│   │   ├── main.py                           # REST API: /health, /chat
-│   │   ├── config.py                         # Environment variables + global configuration
-│   │   ├── db.py                             # PostgreSQL engine creation + connection handling
-│   │   ├── schemas.py                        # Pydantic request/response models
-│   │   │
-│   │   ├── agent/
-│   │   │   ├── state.py                      # Central AgentState + shared memory fields
-│   │   │   ├── state_graph.py                # Routing graph: data, document, fallback, scoring
-│   │   │   ├── route.py                      # LLM question router: data vs document vs none
-│   │   │   ├── data_node.py                  # SQL generator, SQL executor, and data explanation nodes
-│   │   │   ├── doc_node.py                   # Qdrant retrieval + RAG answer generator
-│   │   │   └── score_node.py                 # Quality-scoring node for evaluating LLM answers
-│   │   │
-│   │   ├── llm/
-│   │   │   └── openai_client.py              # GPT-5-Nano/Mini wrappers for chat/completions
-│   │   │
-│   │   ├── vdb/
-│   │   │   └── qdrant_client.py              # Embedding, retrieval, reranking + Qdrant connection
-│   │   │
-│   │   └── rdb/
-│   │       └── postgresql_client.py          # SQL execution helper for querying analytics tables/views
-│   │
-│   └── requirements.txt
-│
-├── frontend/                                 # Streamlit frontend
-│   ├── app.py                                # Streamlit interface: health check, chat UI
-│   └── requirements.txt
-│
-├── scripts/                                  # Initialization scripts
-│   ├── init_postgresql.py                    # Script to initialize PostgreSQL
-│   └── init_qdrant.py                        # Script to initialize Qdrant
-│
-├── assets/
-│   ├── q&a_chatbot_fastapi_demo.mp4          # Demo video for FastAPI Backend Server
-│   └── q&a_chatbot_streamlit_demo.mp4        # Demo video for Streamlit Frontend UI
-│
-├── .env
-└── requirements.txt
+## Structure and flow
+
+```text
+backend/app/
+  main.py, schemas.py       HTTP contract and validation
+  config.py, resources.py   Settings and lifespan-owned lazy dependencies
+  runtime.py               Admission, inference slots, deadlines, safe errors
+  agent/                   Planner → SQL/documents → answer → quality
+  llm/openai_client.py      Structured provider calls and bounded retry
+  rdb/postgresql_client.py  SQL policy and read-only bounded execution
+  vdb/corpus.py             Corpus integrity and provenance
+  vdb/qdrant_client.py      Hybrid retrieval, reranking, versioned cache
+frontend/
+  app.py                   Responsive chat and evidence views
+  client.py                Bounded HTTP requests and safe errors
+  presentation.py          History, retry, charts, export helpers
+scripts/
+  init_postgresql.py       Validate/restore snapshot; provision reader
+  build_corpus.py          Cache models or rebuild original-PDF artifacts
+  init_qdrant.py           Validate/upload version; atomically switch alias
+  evaluate_retrieval.py    Offline benchmark with real cached models
+  demo_backend.py          Explicit offline UI fixture
+data/corpus/               Canonical manifest, page-aware chunks, LFS vectors
+assets/evaluation/         Scenarios and actual retrieval report
+tests/                     Offline and opt-in PostgreSQL checks
 ```
 
-## 🧩 Components
+```mermaid
+flowchart LR
+    UI[Streamlit question and history] --> API[Admission and deadline]
+    API --> P[Structured conversational planner]
+    P --> SQL[SQL draft and policy validation]
+    SQL --> DB[Read-only PostgreSQL]
+    P --> R[Dense and lexical retrieval]
+    R --> RR[Rerank complete PDF chunks]
+    DB --> A[Grounded structured answer]
+    RR --> A
+    P --> C[Clarification or scope response]
+    A --> V[Citation and numeric validation]
+    V --> Q[Evidence quality rubric]
+    Q --> UI
+    C --> UI
+```
 
-- **PostgreSQL Relational Database for Credit Card Transaction Dataset**
+The planner resolves follow-ups from bounded conversation history and decomposes mixed questions. A selected document applies to document retrieval. SQL results and complete document excerpts are passed to both the answerer and judge. Final answers and generated SQL are not cached.
 
-  - **Implementation**  
-     The credit card transaction data from `data/fraudData/fraudTrain.csv` and `data/fraudData/fraudTest.csv` is first combined and processed inside `data/fraudData/data_processing_fraudData.ipynb`, where it undergoes extensive normalization, parsing, and feature engineering. This includes converting timestamps and identifiers into proper formats, creating calendar fields (year, month, year-month, day-of-week, hour), computing customer age at the time of each transaction, and calculating the customer-to-merchant distance using the Haversine formula. The notebook then models the dataset as a full analytical star schema: `dim_customer,` `dim_merchant`, `dim_category`, `dim_date`, and `fact_transactions` and loads it into a PostgreSQL database. Indexes and materialized views are created to support fast analytical queries for fraud rates, merchant/category breakdowns, and time-series patterns.
+## Setup
 
-    After preprocessing, the notebook exports the fully populated database into `data/fraudData/fraudData_snapshot.dump`, which captures all tables, indexes, and materialized views. At runtime, `scripts/init_postgresql.py restores` this snapshot into a Dockerized PostgreSQL instance, ensuring that the backend starts with a ready-to-query analytical warehouse. This allows the FastAPI service to immediately access all aggregated fraud metrics through a clean relational model without reprocessing the raw CSVs.
+Run commands from the repository root. The dependency lock and CI target **Windows and Python 3.11**. Public embedding/reranker weights require about 1.6 GB of downloads plus runtime memory. CPU inference uses four Torch threads; an NVIDIA GPU is optional.
 
-  - **Future Improvements**
-    - Introduce Database Migrations: Replace snapshot-only initialization with migrations that can introduce indexes, partitions, and optimized datatypes incrementally without full reloads, improving iteration speed and avoiding unnecessary downtime.
-    - Columnar Storage or Compression Extensions: Consider PostgreSQL extensions such as TimescaleDB, Citus, or columnar storage (e.g., cstore_fdw or zheap) to accelerate analytical workloads and reduce I/O.
-    - Vectorized and Parallel Query Optimization: Tune PostgreSQL for parallel query execution, adjust work_mem and shared_buffers for large joins, and analyze expected query patterns to ensure the planner uses indexes and parallel workers effectively.
+```powershell
+git lfs install
+git lfs pull
+py -3.11 -m venv .venv
+.venv/Scripts/python.exe -m pip install -r requirements.txt
+.venv/Scripts/python.exe -m pip check
+Copy-Item .env.example .env
+```
 
-- **Qdrant Vector Database for Credit Card Fraud Document**
+Copy the example only when `.env` does not already exist. Set separate `DB_ADMIN_USER`/`DB_ADMIN_PASSWORD` and `DB_USER`/`DB_PASSWORD`. The application user must be a dedicated warehouse reader, such as `fraud_reader`. Set `OPENAI_API_KEY` for live chat. Defaults use GPT-5 Mini for SQL/answers and GPT-5 Nano for planning/quality; configure the four model settings independently.
 
-  - **Implementation**  
-     The credit card fraud document from `data/Understanding Credit Card Frauds/Bhatla.docx` is transformed into a searchable vector corpus inside the notebook `data/Understanding Credit Card Frauds/data_processing_Understanding Credit Card Frauds.ipynb`. The document is parsed into structured sections and paragraphs, split into `Blocks`, and then segmented into sentence-based `Chunks` with controlled length and minimal overlap. Each chunk is assigned a UUID and exported to `data/Understanding Credit Card Frauds/Bhatla_chunks.json`, while the BGE embedding model (`BAAI/bge-base-en-v1.5`) encodes every chunk into a 768-dimensional vector saved in `data/Understanding Credit Card Frauds/Bhatla_embeddings.npy`. A reranker model (`BAAI/bge-reranker-base`) is also initialized for improved relevance scoring during retrieval.
+`.env` is ignored and preserved locally. A previous revision tracked it; removal from the current tree does not remove historical values. Rotate credentials exposed in that history.
 
-    To build the vector store, the script `scripts/init_qdrant.py` launches a Qdrant instance, recreates the target collection (`bhatla_credit_fraud`) with cosine similarity, and uploads all chunks in batches with their corresponding metadata and embeddings. At runtime, the FastAPI backend uses this populated collection for dense retrieval and reranking, enabling grounded, document-based answers within the chatbot’s RAG pipeline.
+Original GPT-5/Mini/Nano calls use low reasoning effort with an 8,192-token completion cap for SQL/answers and minimal effort with 2,048 tokens for planning/quality. These caps include reasoning tokens; other model families omit the family-specific effort parameter. This allocation is based on [OpenAI's reasoning guidance](https://developers.openai.com/api/docs/guides/reasoning), and live completion success remains unmeasured.
 
-  - **Future Improvements**
-    - Persistent Qdrant Storage Configuration: Ensure durable storage via Docker volumes or mounted paths so embeddings and payloads remain loaded between restarts, preventing costly full re-index operations.
-    - Payload-Aware Filtering for Faster Retrieval: Use metadata filters (e.g., section tags, topic tags, fraud categories) to shrink candidate sets before dense scoring, reducing retrieval latency and reranker load.
-    - Query Preprocessing and Hybrid Retrieval: Apply lightweight query rewriting (synonym expansion, acronym resolution) and hybrid search (lexical + vector) to improve recall while reducing the reranker’s workload on irrelevant candidates.
+Start PostgreSQL and Qdrant yourself. Compose uses PostgreSQL 16 and Qdrant 1.17.0, persistent directories, and a PostgreSQL readiness check:
 
-- **FastAPI Backend Server**
+```powershell
+docker compose up -d
+docker compose ps
+.venv/Scripts/python.exe scripts/init_postgresql.py
+.venv/Scripts/python.exe scripts/build_corpus.py --cache-models-only
+.venv/Scripts/python.exe scripts/init_qdrant.py
+```
 
-  - **Implementation**  
-     The FastAPI backend exposes two primary endpoints: `/health `for liveness checks and `/chat` for serving Q&A responses. `backend/app/main.py` handles request routing, loads configuration via `backend/app/config.py`, manages CORS for local development, and performs connectivity checks against PostgreSQL (through a cached SQLAlchemy engine in `backend/app/db.py`) and Qdrant (through the shared client in `backend/app/vdb/qdrant_client`.py). When a chat request arrives, the backend converts the conversation history into a minimal `{role, content}` form and invokes `run_agent()` from `backend/app/agent/state_graph.py`, later packaging the agent’s final answer, metadata, and source previews into a strongly typed `ChatResponse` defined in `backend/app/schemas.py`.
+Initializers use configured, already-running services; they do not start or restart Docker. Database restoration requires a complete Git LFS `PGDMP` archive and an empty database by default. `--replace` explicitly permits cleaning snapshot objects in a nonempty target. Native `pg_restore` is preferred; otherwise the configured running PostgreSQL container is used. Restore is atomic. Administrator credentials are used only for restoration and provisioning. The reader receives SELECT on the nine warehouse objects, no write/create/temp privileges, a read-only default, and a statement timeout.
 
-    Runtime configuration and external integrations are encapsulated cleanly. `backend/app/config.py `centralizes all environment-driven settings such as DB credentials, Qdrant location, and LLM model names; `backend/app/db.py` constructs and caches the SQLAlchemy engine; and `backend/app/vdb/qdrant_client.py` loads the embedding and reranker models once at startup, providing convenient helpers for query embedding, dense search, and reranking. This design keeps model loading, Qdrant access, and connection handling isolated from the core logic.
+The canonical corpus is prebuilt; caching models does not regenerate it. Qdrant initialization validates local artifacts and sources before mutation, uploads `fraud_documents_<artifact_version>`, verifies payloads/vectors, and atomically activates the configured `fraud_documents` alias. Previous collections are retained. Do not reuse the historical `bhatla_credit_fraud` collection with this profile.
 
-    The conversational intelligence is implemented as a LangGraph state machine wired in `backend/app/agent/state_graph.py`. It orchestrates the end-to-end flow: the router (`backend/app/agent/route.py`) classifies each question as data-focused, document-focused, or out-of-scope; the data path (`backend/app/agent/data_node.py`) generates SQL, executes it with `backend/app/rdb/postgresql_client.py.run_sql_query`, and summarizes the results; the document path (`backend/app/agent/doc_node.py`) retrieves and reranks relevant Qdrant chunks from `backend/app/vdb/qdrant_client.py.run_sql_query` before generating a grounded RAG answer; and the fallback route produces a safe message for unsupported queries. All paths conclude with the `backend/app/agent/score_node.py`, which computes an LLM-based quality score based on the answer and its evidence.
+Start the application in separate terminals:
 
-    LLM calls and data access are abstracted behind stable interfaces. `backend/app/llm/openai_client.py` provides thin wrappers around GPT-5 Nano and Mini, ensuring that every part of the pipeline (router, SQL generator, RAG answerer, scorer) uses consistent model invocation logic. Together, these components form a cohesive backend that retrieves the right information source, synthesizes grounded answers, scores them, and then exposes everything through a simple and predictable `/chat` API.
+```powershell
+.venv/Scripts/python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+.venv/Scripts/python.exe -m streamlit run frontend/app.py
+```
 
-  - **Future Improvements**
-    - Batch and Asynchronous Execution: Move to async FastAPI endpoints and async database + LLM clients, enabling concurrency scaling and significantly improving throughput under parallel user queries.
-    - Agent Graph Optimization and Caching: Cache routing decisions, SQL snippets, and Qdrant retrieval results for repeated or similar queries to reduce redundant LLM calls and improve overall response latency.
+Open `http://localhost:8501`; API docs are at `http://localhost:8000/docs`. The frontend reads `FRAUD_API_BASE_URL`, defaulting to `http://localhost:8000`. Use one backend worker for the documented resource limits; limits are per process.
 
-- **Streamlit Frontend UI**
+## Evidence and accuracy
 
-  - **Implementation**  
-     The Streamlit interface in `frontend/app.py` provides a simple chat surface that communicates with the FastAPI backend over HTTP. It initializes the backend URL from the `FRAUD_API_BASE_URL` environment variable, exposes this setting in the sidebar, and allows users to run a `/health` check that reports the status of PostgreSQL, Qdrant, and the active LLM model. Conversation state is stored in `st.session_state.messages`, which holds a list of user and assistant turns. Each user input is immediately rendered, while the sidebar and helper utilities (`init_session_state`, `build_history_for_backend`, `call_health`) maintain a consistent UI state.
+**Warehouse.** Preparation combines 1,296,675 training and 555,719 test records into 1,852,394 synthetic transactions. The star schema has `dim_customer`, `dim_merchant`, `dim_category`, `dim_date`, and `fact_transactions`; materialized views are `agg_daily_fraud`, `agg_monthly_fraud`, `agg_merchant_fraud`, and `agg_category_fraud`.
 
-    When the user submits a question, the UI sends a POST request to `/chat` using `call_chat()`, passing the cleaned conversation history in the format required by the backend. The backend’s response, containing the generated answer, answer type, quality score, optional SQL, and supporting sources, is appended as an assistant message and displayed using `render_assistant_message()`. This renderer supports expandable previews for SQL result samples and retrieved document chunks, ensuring transparency in how each answer was generated. Errors from the backend are caught and displayed as assistant messages so that the chat view remains stable even under failure conditions.
+Fraud rates are fractions: fraud count / total count. Value shares use fraud amount / total amount. Aggregate rates require summed numerators and denominators, not averages of rates. Trends are chronological. Amounts display in dataset units because the warehouse does not establish a currency. Views are a snapshot; deliberately refresh them after data changes.
 
-  - **Future Improvements**
-    - Streaming Responses: Support incremental token streaming from the backend so the UI stays responsive during long LLM generations and provides faster perceived latency.
-    - Asynchronous Backend Requests: Use async HTTP clients (e.g., httpx) and background tasks so the UI remains interactive while waiting for long-running backend computations.
+SQL is parsed as PostgreSQL before execution. Only one read-only SELECT/set-operation statement, the nine public warehouse objects, and explicitly allowed expressions/functions/casts are accepted. CTE scopes are validated. Writes, locks, system catalogs, recursion, table functions, and unsafe functions are rejected. Execution uses `search_path=pg_catalog` with explicit public qualification, a read-only transaction, rollback on every exit, a maximum 10-second statement timeout, and bounded rows/cells/columns/bytes. Only known syntax/schema failures allow one repair. Returned SQL is the actual executed statement.
 
-## 🔌 API
+**Documents.** The canonical corpus uses the original 17-page Bhatla and 35-page EBA/ECB PDFs. Chunks have stable IDs, source SHA-256, titles, physical one-based PDF pages, sections, token counts, and vector rows. BGE passages are plain text; queries use `Represent this sentence for searching relevant passages: `. The manifest pins model revisions and weight hashes. Historical DOCX summaries and JSON/NPY exports stay separate.
 
-1. **Health Check**  
-   `GET /health`: to verify that the FastAPI, PostgreSQL, Qdrant is running
-   - Request: `None`
-   - Response: `'status', 'db_ok', 'qdrant_ok', 'model'`
-   ```bash
-   curl "http://localhost:8000/health"
-   ```
-2. **Chat w/ Fraud Q&A Chatbot**  
-   `POST /chat`: to ask the chatbot about credit card transaction or credit card fraud
-   - Request: `ChatRequest`
-   - Response: `ChatResponse`
-   ```bash
-   curl -X POST "http://localhost:8000/chat" \
-   -H "Content-Type: application/json" \
-   -d '{
-      "question": "{question}",
-      "history": [
-            {"role": "user", "content": "{user_content}"},
-            {"role": "assistant", "content": "{assistant_content}"}
-        ]
-   }'
-   ```
+Canonical JSON uses LF line endings explicitly, including on Windows, so Git checkouts preserve manifest file hashes.
 
-## 🖥️ Demo Video
+Retrieval unions dense and BM25 lexical candidates, reranks with BGE, applies document filters, and keeps up to eight complete chunks in a 6,000-token budget. Its bounded cache includes corpus version, embedding profile, active alias, filter, and resolved question. Runtime never downloads weights. [Corpus details and rebuild commands](data/corpus/README.md).
 
-- **FastAPI Backend Server**
-  ![FastAPI Backend Server](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_fastapi_demo.gif)
+EBA chart text warns when numeric labels cannot reliably be paired with series/periods. Bhatla page 15 preserves Figure 2's 0.08% fraud-loss label and the conflicting 0.06% prose value; answers must expose that conflict. EBA H1 2023 cross-border card fraud is 71% by value and 68% by volume. Those figures describe the report's population, not the synthetic dataset.
 
-- **Streamlit Frontend UI**
-  ![Streamlit Frontend UI](https://media.githubusercontent.com/media/verneylmavt/mekari-qac/refs/heads/main/assets/q%26a_chatbot_streamlit_demo.gif)
+**Answers.** Every substantive paragraph must cite supplied document IDs or `[SQL]`. Numeric checks use the sources cited by that paragraph. Mixed answers require both evidence branches. Unsupported structured responses become fixed abstentions. These checks reduce errors but do not prove semantic correctness.
 
-## ⚙️ Local Setup
+The quality rubric weights evidence support 40%, relevance 20%, completeness 20%, and consistency 20%, using exactly the answer evidence. Low support/consistency causes abstention. `quality_score` is not a calibrated probability. If judging fails, `quality_available=false` and the UI shows N/A; numeric zero is a compatibility sentinel.
 
-0. Make sure to have the prerequisites:
+## Reliability and API
 
-   - Git
-   - Git Large File Storage
-   - Python
-   - Conda or venv
-   - Docker
-   - NVIDIA Driver + CUDA Toolkit (optional)
+Defaults: four admitted chats, one inference slot, 120-second request deadline, 30-second external-call cap, 10-second SQL timeout, four database connections, 200 returned rows, and 20 rows in answer prompts. Saturation returns a retryable 503 promptly. Inference capacity remains held until native work finishes. Provider calls permit one transient retry with SDK retries disabled. Imports and `/live` do not connect or load models.
 
-1. Clone the repository:
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /live` | Process liveness, no dependency I/O |
+| `GET /health` | Compatibility readiness report, 200 when degraded |
+| `GET /ready` | Dependency readiness, 503 when degraded; cached five seconds |
+| `POST /chat` | Question, nullable history, nullable document selection |
 
-   ```bash
-    git clone https://github.com/verneylmavt/mekari-qac.git
-    cd mekari-qac
-   ```
+Readiness checks warehouse objects/permissions, active Qdrant corpus, local model availability, and configured provider key. It does not spend a provider call or prove the key valid. Chat can use a working branch when unrelated dependencies are unavailable.
 
-2. Create environment and install dependencies:
+```json
+{
+  "question": "What share of card fraud value in H1 2023 was cross-border?",
+  "history": [],
+  "document_id": "eba"
+}
+```
 
-   ```bash
-   conda create -n mekari-qac python=3.11 -y
-   conda activate mekari-qac
+Responses retain `answer`, `answer_type`, `quality_score`, `sql`, `sources`; additions include `status`, quality details, `request_id`, `elapsed_ms`, `timings`, and `truncated`. Types are data/document/mixed/other; statuses are answered/clarification/insufficient_evidence. Questions accept 1–4,000 characters, history up to 12 user/assistant messages of 1–8,000 characters, and document selection is null/`bhatla`/`eba`.
 
-   pip install -r requirements.txt
-   ```
+Errors return a safe code/message/retryable/request-ID object: 422 validation, 503 saturation/dependency, 504 deadline, or 500 unexpected failure. Logs contain identifiers/types/status/timings, not questions, evidence, keys, or driver errors. Local CORS has explicit origins and no credential sharing.
 
-3. Fill the required `OPENAI_API_KEY` in `.env`
+The responsive frontend disables submission/scope changes while pending, excludes failed turns from history, retries with original request context, displays evidence and quality details, and exports completed conversations as Markdown. Charts use returned SQL fields only.
 
-4. Initialize and run the required components:
+## Verification and demonstration
 
-   - Initialize the PostgreSQL:
-     ```bash
-     python scripts/init_postgresql.py
-     ```
-   - Initialize the Qdrant:
-     ```bash
-     python scripts/init_qdrant.py
-     ```
-   - Run the FastAPI backend server:
-     ```bash
-     uvicorn backend.app.main:app --reload --port 8000
-     ```
-   - Run the Streamlit frontend UI:
-     ```bash
-     streamlit run frontend/app.py
-     ```
+Default checks require no provider, database server, model download, or paid call:
 
-5. Open the API documentation to make an API call:
-   ```bash
-   start "http://127.0.0.1:8000/docs"
-   ```
-   Or alternatively, open the UI and interact with the app:
-   ```bash
-   start "http://127.0.0.1:8501"
-   ```
+```powershell
+.venv/Scripts/python.exe -m ruff check backend frontend scripts tests
+.venv/Scripts/python.exe -m ruff format --check backend frontend scripts tests
+.venv/Scripts/python.exe -m pytest -q
+.venv/Scripts/python.exe -m pip check
+```
+
+Opt-in PostgreSQL tests use only a disposable local instance on `127.0.0.1:15432` with a `postgres` administrator. They create/remove unique databases and roles and cannot target the configured application database. Enable only for that disposable instance:
+
+```powershell
+$env:FRAUD_TEST_LOCAL_POSTGRES = '1'
+.venv/Scripts/python.exe -m pytest -q
+Remove-Item Env:FRAUD_TEST_LOCAL_POSTGRES
+```
+
+Checks cover hostile SQL, transactions/privileges, deadlines/saturation/cleanup, structured SDK requests with a mock transport, citation/number grounding, cache/filter/version behavior, HTTP errors, history/retry/export, and Streamlit AppTest. Local database tests ran on PostgreSQL 18; Compose targets 16. Qdrant transport is unit-tested; actual retrieval benchmarking uses in-memory Qdrant and real cached models.
+
+Final local verification: **183 passing tests**, including **25 real PostgreSQL checks**, plus clean lint, formatting, dependency, artifact-checkout and independent review checks. The default suite skips those 25 opt-in database cases.
+
+```powershell
+.venv/Scripts/python.exe scripts/evaluate_retrieval.py
+```
+
+[Scenarios](assets/evaluation/questions.json) include the challenge examples and follow-up, mixed, ambiguous, unrelated, value/volume, coverage, and source-conflict cases. The [measured report](assets/evaluation/retrieval_report.json) contains seven documentary probes with hit@8, reciprocal rank, gold-term presence, citations, and runtime. It measures retrieval only; planner, SQL generation, answer accuracy, and quality calibration need a separately budgeted live evaluation.
+
+The recorded run retrieved a gold page for all seven probes (hit@8 **1.0**), mean reciprocal rank **0.655**, and every listed gold term. On the local four-thread CPU, the cold first query took about 64 seconds and subsequent queries 19–26 seconds. This small benchmark establishes coverage of these probes, not general retrieval accuracy or live answer latency.
+
+For an entirely offline interface demo, use separate terminals:
+
+```powershell
+.venv/Scripts/python.exe -m uvicorn scripts.demo_backend:app --host 127.0.0.1 --port 8001
+```
+
+```powershell
+$env:FRAUD_API_BASE_URL = 'http://127.0.0.1:8001'
+$env:FRAUD_DEMO_MODE = '1'
+.venv/Scripts/python.exe -m streamlit run frontend/app.py --server.port 8502
+```
+
+The banner and fixture answers identify demo mode. Desktop (1440 px) and mobile (390 px) browser checks verified submission, citations, charts, export, and clearing without console errors. CI runs default offline checks on Windows/Python 3.11 and verifies paired contributor guides.
+
+## Contribution notes
+
+Follow [AGENTS.md](AGENTS.md) or matching [CLAUDE.md](CLAUDE.md). [PLANS.md](PLANS.md) records the implementation sequence. `requirements.in` holds direct dependencies; `requirements.txt` is the Windows/Python 3.11 lock. Backend/frontend manifests include it. Regenerate the lock deliberately when dependencies change.
+
+Historical preparation notebooks/exports retain separate dependency manifests. They run destructive database/file operations at module scope; do not import them or use them for runtime setup. Preserve PDFs, raw data, snapshots, and legacy artifacts. Streaming, distributed admission, migrations, and calibrated live answer benchmarks remain future work.

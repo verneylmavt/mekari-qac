@@ -7,14 +7,14 @@ Done when: offline tests, lint, corpus integrity/evaluation and browser checks p
 
 ## Commit sequence and verification
 
-1. [ ] Reproducible Python 3.11 configuration, dependency lock, injectable resources, safe imports, environment hygiene. Verify import/lifespan and schema tests.
-2. [ ] Read-only SQL AST policy, warehouse role, bounded transactions and results, safe restoration. Verify hostile SQL and database boundary tests.
-3. [ ] Canonical page-aware corpus for both PDFs, stable IDs, manifest and vectors, safe Qdrant alias initialization. Verify source facts and artifact integrity.
-4. [ ] Hybrid retrieval, reranking, complete token-bounded evidence, document filters and versioned caches. Verify ranking/filter/cache behavior.
-5. [ ] Structured conversational planner, mixed answers, citation validation, clarification/abstention and transparent evidence quality. Verify deterministic stub scenarios and failure behavior.
-6. [ ] Admission/inference limits, deadlines, timeouts/retry, readiness and safe failures. Verify concurrent saturation and resource cleanup.
-7. [ ] Responsive accessible Streamlit experience, source controls, error recovery, export and SQL-backed charts. Verify client tests, AppTest and browser fixture.
-8. [ ] Offline evaluation, CI, demo screenshots and updated README/paired contributor guides. Run fresh independent review and all checks, then push.
+1. [x] Reproducible Python 3.11 configuration, dependency lock, injectable resources, safe imports, environment hygiene. Import/lifespan/schema tests and pinned environment checks pass. Commit `10d33a2`.
+2. [x] Read-only SQL AST policy, warehouse role, bounded transactions and results, safe restoration. Hostile SQL, initializer, and 24 real PostgreSQL checks pass. Commit `2642025`.
+3. [x] Canonical page-aware corpus for both PDFs, stable IDs, manifest and vectors, safe Qdrant alias initialization. Original source facts visually checked; 146 chunks and artifact `2c3bdbc47dcd71e6` pass source/vector/order integrity checks.
+4. [x] Hybrid retrieval, reranking, complete token-bounded evidence, document filters and versioned caches. All 15 focused checks pass, including fresh-review regressions; actual seven-probe hit@8 is 1.0 with MRR 0.655.
+5. [x] Structured conversational planner, mixed answers, citation validation, clarification/abstention and transparent evidence quality. Deterministic scenarios, grounding/error regressions and actual SDK mock wire requests pass.
+6. [x] Admission/inference limits, deadlines, timeouts/retry, readiness and safe failures. Saturation, deadlines, safe HTTP errors and resource cleanup checks pass.
+7. [x] Responsive accessible Streamlit experience, source controls, error recovery, export and SQL-backed charts. Client/helper/AppTest checks and desktop/mobile offline browser verification pass.
+8. [x] Offline evaluation, CI, demo screenshots and updated README/paired contributor guides. Fresh independent review is clean. All 183 tests, lint, formatting, dependencies, paired guides, source integrity, and Git artifact checkout checks pass. Publish the completed sequence to origin/main as the final delivery operation.
 
 ## Shared interfaces
 
@@ -31,6 +31,10 @@ Ruling: user explicitly authorized main and push; use disjoint worker file owner
 Ruling: preserve legacy notebooks/exports as historical preparation; new safe scripts replace their runtime setup responsibilities.
 Ruling: live Docker services are unavailable at preflight; use isolated fakes and local Qdrant tests, clearly report integration limits.
 Ruling: use pinned packages and a separate ignored .venv; dependency and public model downloads are setup, while evaluation performs zero paid API calls.
+
+Final verification: all 183 tests pass, including 25 disposable PostgreSQL 18 checks; pip check, Ruff, formatting, matching contributor guides and whitespace checks pass. Browser verification at 1440 and 390 pixels passed with labelled fixtures and no console errors. Actual cached-model retrieval found every gold page and term in seven probes (hit@8 1.0, MRR 0.655). Component and whole-tree reviews produced regression-tested fixes for SQL safety, effective privileges, source grounding, corpus verification, concurrency, temporal/numeric database types, and contradictory SQL examples. Canonical JSON has explicit LF output/Git attributes, and artifacts exported from the Git index pass source/vector/hash validation. Validation performed zero paid calls; retrieval metrics do not measure live answer accuracy.
+
+Implementation commits: `10d33a2` configuration; `2642025` SQL policy/reader; `49a63ee` original-PDF corpus; `e1692ac` hybrid retrieval; `4eb4539` conversational grounding; `a46f4d2` runtime reliability; `e428b30` frontend; final commit adds evaluation, CI, demo, portability regression and documentation.
 
 | Shared work | Producer / consumer | Resolution |
 | --- | --- | --- |

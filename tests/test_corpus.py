@@ -9,6 +9,11 @@ from scripts.init_qdrant import initialize
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_canonical_json_has_portable_line_endings():
+    for name in ("chunks.json", "manifest.json"):
+        assert b"\r" not in (ROOT / "data/corpus" / name).read_bytes()
+
+
 def test_canonical_corpus_integrity_and_gold_facts():
     corpus = load_corpus(ROOT / "data/corpus")
     assert {c["document_id"] for c in corpus.chunks} == {"bhatla", "eba"}
