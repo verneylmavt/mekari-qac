@@ -1,116 +1,123 @@
-# backend/app/main.py
+import logging
+from contextlib import asynccontextmanager
+from uuid import uuid4
 
-from typing import Any, Dict, List
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from fastapi.responses import JSONResponse
 
-from .config import get_settings
+from .config import Settings, get_settings
+from .resources import Resources
+from .runtime import Admission, Deadline, ServiceError
 from .schemas import ChatRequest, ChatResponse
-from .agent.state_graph import run_agent
-from .db import get_engine
-from .vdb.qdrant_client import _qdrant_client  # type: ignore
 
-settings = get_settings()
-
-app = FastAPI(title="Fraud Q&A Chatbot")
-
-# CORS (allow localhost frontends; tighten for prod)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+logger = logging.getLogger(__name__)
 
 
-@app.get("/health")
-def health() -> Dict[str, Any]:
-    # Simple health checks
-    db_ok = False
-    qdrant_ok = False
+def create_app(*, resources=None, settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
 
-    try:
-        engine = get_engine()
-        with engine.connect() as conn:
-            # SQLAlchemy 2.x: pass a text() object
-            conn.execute(text("SELECT 1"))
-        db_ok = True
-    except Exception:
-        db_ok = False
+    @asynccontextmanager
+    async def lifespan(application):
+        application.state.resources = resources or Resources(settings)
+        try:
+            yield
+        finally:
+            application.state.resources.close()
 
-    try:
-        _ = _qdrant_client.get_collections()
-        qdrant_ok = True
-    except Exception:
-        qdrant_ok = False
-
-    return {
-        "status": "ok" if db_ok and qdrant_ok else "degraded",
-        "db_ok": db_ok,
-        "qdrant_ok": qdrant_ok,
-        "model": settings.openai_model_name,
-    }
-
-
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
-    history_serialised: List[Dict[str, str]] = []
-    if request.history:
-        for m in request.history:
-            history_serialised.append(
-                {
-                    "role": m.role,
-                    "content": m.content,
-                }
-            )
-
-    state = run_agent(
-        question=request.question,
-        history=history_serialised,
+    application = FastAPI(title="Fraud Q&A Chatbot", lifespan=lifespan)
+    admission = Admission(settings.max_concurrent_chats)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
     )
 
-    answer = state.get("answer") or ""
-    answer_type = state.get("answer_type") or "unknown"
-    quality = float(state.get("quality_score") or 0.0)
-    sql = state.get("generated_sql")
+    @application.middleware("http")
+    async def request_id(request: Request, call_next):
+        request.state.request_id = str(uuid4())
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request.state.request_id
+        return response
 
-    sources: List[Dict[str, Any]] = []
-
-    if answer_type == "data":
-        rows = state.get("sql_result_rows") or []
-        sources.append(
-            {
-                "type": "sql_result",
-                "rows_preview": rows,
-            }
-        )
-    elif answer_type == "document":
-        chunks = state.get("context_chunks") or []
-        doc_sources: List[Dict[str, Any]] = []
-        for c in chunks[:5]:
-            payload = c["payload"]
-            doc_sources.append(
-                {
-                    "section": payload.get("section"),
-                    "subsection": payload.get("subsection"),
-                    "snippet": payload["text"],
-                    "rerank_score": c.get("rerank_score"),
+    @application.exception_handler(ServiceError)
+    async def service_error(request: Request, exc: ServiceError):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "detail": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "retryable": exc.retryable,
+                    "request_id": request.state.request_id,
                 }
-            )
-        sources.append(
-            {
-                "type": "document_chunks",
-                "chunks": doc_sources,
-            }
+            },
+            headers={"Retry-After": "2"} if exc.retryable and exc.status_code == 503 else {},
         )
 
-    return ChatResponse(
-        answer=answer,
-        answer_type=answer_type,
-        quality_score=quality,
-        sql=sql,
-        sources=sources or None,
-    )
+    @application.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, exc):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": {
+                    "code": "invalid_request",
+                    "message": "Check question, history and document selection.",
+                    "retryable": False,
+                    "request_id": request.state.request_id,
+                }
+            },
+        )
+
+    @application.get("/live")
+    async def live():
+        return {"status": "ok"}
+
+    @application.get("/health")
+    def health():
+        return application.state.resources.ready()
+
+    @application.get("/ready")
+    def ready():
+        result = application.state.resources.ready()
+        return JSONResponse(result, status_code=200 if result["status"] == "ok" else 503)
+
+    @application.post("/chat", response_model=ChatResponse)
+    def chat(payload: ChatRequest, request: Request):
+        from .agent.state_graph import run_agent
+
+        deadline = Deadline(settings.request_timeout_seconds)
+        with admission.enter():
+            try:
+                result = run_agent(payload, application.state.resources, deadline)
+                result.request_id = request.state.request_id
+                logger.info(
+                    "chat_complete request_id=%s type=%s status=%s timings=%s",
+                    result.request_id,
+                    result.answer_type,
+                    result.status,
+                    result.timings,
+                )
+                return result
+            except ServiceError:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "chat_failed request_id=%s error_type=%s",
+                    request.state.request_id,
+                    type(exc).__name__,
+                )
+                raise ServiceError(
+                    "internal_error",
+                    "The request could not be completed.",
+                    status_code=500,
+                    retryable=False,
+                ) from None
+
+    return application
+
+
+app = create_app()
