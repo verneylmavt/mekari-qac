@@ -1,6 +1,10 @@
 """Strict warehouse SQL policy and bounded PostgreSQL read transactions."""
 
+import base64
+import math
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 import sqlglot
@@ -289,6 +293,21 @@ def _safe_database_error(error: SQLAlchemyError) -> SQLExecutionError:
     return SQLExecutionError("The database query could not be completed.")
 
 
+def _json_value(value):
+    """Keep database evidence numeric and temporal types consistent on the wire."""
+    if isinstance(value, Decimal):
+        if not value.is_finite() or not math.isfinite(float(value)):
+            raise SQLExecutionError("The query returned invalid numeric evidence.")
+        return int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        raise SQLExecutionError("The query returned invalid numeric evidence.")
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        return base64.b64encode(value).decode("ascii")
+    return value
+
+
 def run_sql_query(
     sql: str, *, engine: Engine | None = None, max_rows: int = 200, timeout_ms: int = 10000
 ) -> SQLQueryResult:
@@ -328,7 +347,11 @@ def run_sql_query(
                                 "The query returned oversized evidence.",
                                 code="sql_result_too_large",
                             )
-                return SQLQueryResult(safe_sql, rows[:max_rows], len(rows) > max_rows)
+                normalized = [
+                    {key: _json_value(value) for key, value in row.items()}
+                    for row in rows[:max_rows]
+                ]
+                return SQLQueryResult(safe_sql, normalized, len(rows) > max_rows)
             finally:
                 try:
                     if result is not None:

@@ -231,3 +231,30 @@ def test_errors_are_sanitized_and_repairability_is_narrow(state, repairable):
     assert exc.value.repairable is repairable
     assert "SECRET" not in str(exc.value) and "PASSWORD" not in str(exc.value)
     assert conn.rolled_back
+
+
+def test_sql_temporal_and_numeric_values_have_consistent_json_types():
+    from datetime import date, datetime
+    from decimal import Decimal
+
+    rows = [
+        {
+            "day": date(2020, 1, 15),
+            "time": datetime(2020, 1, 15, 13, 45),
+            "count": Decimal("3"),
+            "ratio": Decimal("0.03"),
+        }
+    ]
+    conn = FakeConnection(FakeResult(rows))
+    result = sql_client.run_sql_query("SELECT * FROM dim_date", engine=FakeEngine(conn))
+    assert result.rows == [
+        {"day": "2020-01-15", "time": "2020-01-15T13:45:00", "count": 3, "ratio": 0.03}
+    ]
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_nonfinite_sql_numbers_fail_safely_and_rollback(value):
+    conn = FakeConnection(FakeResult([{"value": value}]))
+    with pytest.raises(sql_client.SQLExecutionError):
+        sql_client.run_sql_query("SELECT * FROM dim_date", engine=FakeEngine(conn))
+    assert conn.rolled_back

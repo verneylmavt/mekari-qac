@@ -80,6 +80,36 @@ def test_raw_query_preserves_colon_and_percent_literals(database):
         engine.dispose()
 
 
+def test_native_numeric_aggregates_survive_response_and_chart(database):
+    from backend.app.agent.data_node import evidence_summary
+    from backend.app.schemas import ChatResponse
+    from frontend.presentation import chart_spec
+
+    config, connection = database
+    warehouse(connection)
+    initializer.provision_reader(config)
+    engine = reader_engine(config)
+    try:
+        result = run_sql_query(
+            "SELECT '2020-01' AS year_month, SUM(value::bigint) AS fraud_tx, "
+            "SUM((value * 100)::bigint) AS total_tx FROM dim_date",
+            engine=engine,
+        )
+        summary = evidence_summary(result.rows)
+        assert summary == {"fraud_rate": 0.01}
+        response = ChatResponse(
+            answer="One transaction. [SQL]",
+            answer_type="data",
+            quality_score=0,
+            sources=[{"type": "sql_result", "rows_preview": result.rows}],
+        ).model_dump(mode="json")
+        assert response["sources"][0]["rows_preview"][0]["fraud_tx"] == 1
+        chart = chart_spec(response["sources"])
+        assert chart["rows"] == [{"Month": "2020-01", "Fraud transactions (count)": 1}]
+    finally:
+        engine.dispose()
+
+
 def test_public_function_overload_cannot_override_builtin_resolution(database):
     config, connection = database
     warehouse(connection)
