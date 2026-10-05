@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "artifact_version": "2c3bdbc47dcd71e6",
+  "profile_sha256": "6632c13390739bb782de3bd8f241188faec113c91d5fa97e2af8da272da88c3c",
+  "point_order_sha256": "29ed5c3ef98b8f8917a6c7504c473723fd005ef4c68e6aca4d2cb190ef6b0ad2",
+  "sources": {
+    "bhatla": {
+      "path": "data/Understanding Credit Card Frauds/Bhatla.pdf",
+      "title": "Understanding Credit Card Frauds",
+      "sha256": "6961a50224423ea16eb2b97486fdbe88b4d1a48fd9289687e911e3ae10c4596d",
+      "pages": 17,
+      "publication_date": "June 2003"
+    },
+    "eba": {
+      "path": "data/2024 REPORT ON PAYMENT FRAUD/EBA_ECB 2024 Report on Payment Fraud.pdf",
+      "title": "2024 Report on Payment Fraud (EBA and ECB)",
+      "sha256": "dca63ad08f8ea7d5d0db77bd5953bbc0ebca987a3b7e4df501c43e825dfe5ebf",
+      "pages": 35,
+      "publication_date": "2024"
+    }
+  },
+  "chunking": {
+    "method": "page-lines-heading-context-v1",
+    "max_tokens": 420,
+    "tokenizer": "max-of-bge-and-reranker",
+    "tokenizer_revision": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
+    "reranker_tokenizer_revision": "2cfc18c9415c912f9d8155881c133215df768a70",
+    "overlap": 0
+  },
+  "vectors_sha256": "f18301421355aba400a63850513e56f05e2b917adc3cb7f6612a3c1b93b817b6",
+  "embedding_profile": {
+    "name": "bge-english-v1.5-plain-passage-v2",
+    "model": "BAAI/bge-base-en-v1.5",
+    "model_revision": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
+    "reranker": "BAAI/bge-reranker-base",
+    "reranker_revision": "2cfc18c9415c912f9d8155881c133215df768a70",
+    "dimension": 768,
+    "normalized": true,
+    "model_weights_sha256": "c7c1988aae201f80cf91a5dbbd5866409503b89dcaba877ca6dba7dd0a5167d7",
+    "reranker_weights_sha256": "ced967c45fd1902eb92716c9ceeca7c95a936770ea9db611f5a841b926e33fbd",
+    "passage_instruction": "",
+    "query_instruction": "Represent this sentence for searching relevant passages: "
+  },
+  "chunk_count": 146,
+  "artifacts": {
+    "chunks.json": {
+      "sha256": "e6b703bf77cf478fd5af8fb2391502ef173e9a703c1138d6e56e6464bbd15a88"
+    },
+    "vectors.npy": {
+      "sha256": "f18301421355aba400a63850513e56f05e2b917adc3cb7f6612a3c1b93b817b6"
+    }
+  }
+}
